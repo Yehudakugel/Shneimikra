@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block body %}
+<h1>Settings</h1>
+{% include "_adminnav.html" %}
+<form method="post"><input type="hidden" name="csrf" value="{{ csrf }}">
+  <label>Program name</label><input name="program_name" value="{{ setting('program_name') }}">
+  <label>Tap-to-win chance per completed portion (0–1)</label><input name="tap_win_chance" value="{{ setting('tap_win_chance') }}" inputmode="decimal">
+  <label>Teaser text (shown when no surprise week is announced)</label><input name="teaser" value="{{ setting('teaser') }}">
+  <label>Hotline number to display</label><input name="hotline_number" value="{{ setting('hotline_number') }}">
+  <label>WhatsApp share text (the site link is added automatically)</label><input name="share_text" value="{{ setting('share_text') }}">
+  <button class="btn" style="margin-top:20px">Save settings</button>
+</form>
+<div class="section"><h2>Program</h2><p class="small muted">Plan: {{ plan.TOTAL }} daily portions (54 parshiyos × 7 aliyos), {{ plan.START_DATE }} → {{ plan.END_DATE }}. Day boundaries: US Eastern time. Streak tiers: {% for t in rewards.TIERS %}{{ t.weeks }}+ wk ×{{ t.mult }}{{ ', ' if not loop.last }}{% endfor %}.</p>
+<p class="small muted">Phone webhook (for a future Twilio number): <code>{{ request.url_root }}voice/incoming</code></p></div>
+{% endblock %}

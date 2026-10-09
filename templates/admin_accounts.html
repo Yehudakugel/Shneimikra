@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block body %}
+<h1>Accounts</h1>
+{% include "_adminnav.html" %}
+<form method="get" style="margin-top:16px">
+  <input name="q" value="{{ q }}" placeholder="Search name or username">
+  <div class="chips">
+    <a class="{{ 'on' if not tag }}" href="{{ url_for('admin_accounts') }}">All · {{ total }}</a>
+    {% for t, label in [('first-week','First week'),('3-month','3-month reward'),('demo','Demo'),('tour','Tour'),('active-this-week','Active this week'),('inactive','Inactive 7+ days'),('admin','Admin')] %}
+    <a class="{{ 'on' if tag==t }}" href="{{ url_for('admin_accounts', tag=t, q=q) }}">{{ label }} · {{ counts.get(t,0) }}</a>{% endfor %}
+  </div>
+</form>
+<div style="overflow-x:auto;margin-top:20px"><table>
+<tr><th>Name</th><th>Tags</th><th>Done</th><th>Streak</th><th>×</th><th>Medals</th><th>Last</th></tr>
+{% for r in rows %}<tr><td>{{ r.u.name }}<br><span class="muted">@{{ r.u.username }}{{ ' · ' ~ (r.u.phone|phone) if r.u.phone }}</span></td>
+<td>{% for t in r.tags %}<span class="tag-chip">{{ t }}</span>{% endfor %}</td>
+<td>{{ r.done }}{% if r.sefer %}<br><span class="muted small">{{ r.sefer }} from sefer</span>{% endif %}</td><td>{{ r.sm.streak_weeks }}w</td><td>×{{ r.sm.mult }}</td><td style="white-space:nowrap"><span class="mark gold"></span>{{ r.sm.gold|length }} <span class="mark black" style="margin-left:6px"></span>{{ r.sm.black|length }}</td><td>{{ r.last|local('%b %d') if r.last }}</td></tr>
+{% else %}<tr><td colspan="7">No accounts match.</td></tr>{% endfor %}
+</table></div>
+{% endblock %}

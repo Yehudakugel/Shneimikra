@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}How it works{% endblock %}
+{% block body %}
+<h1>How it works</h1>
+<p class="muted">Everything in two minutes.</p>
+{% if has_video %}
+<video controls playsinline preload="metadata" style="width:100%;border-radius:18px;background:#000;margin:12px 0 8px" poster="{{ url_for('static', filename='tutorial-poster.png') }}?v=2">
+  <source src="{{ url_for('static', filename='tutorial.mp4') }}?v=2" type="video/mp4"></video>
+<p class="small muted">Narration is a computer voice (prototype).</p>
+{% endif %}
+<div class="list" style="margin-top:20px">
+{% for title, text in steps %}
+<div style="display:flex;gap:16px"><div class="muted" style="flex:0 0 22px;font-variant-numeric:tabular-nums">{{ loop.index }}</div><div><h3>{{ title }}</h3><div class="muted">{{ text }}</div></div></div>
+{% endfor %}
+</div>
+<div class="section"><h2>Try the guided tour</h2><p class="muted">Log in as <b>tour</b> with password <b>tour123</b>. The site walks you through each part.</p></div>
+{% if not me %}<a class="btn" href="{{ url_for('signup') }}">Get started</a>{% endif %}
+{% include "_share.html" %}
+{% endblock %}

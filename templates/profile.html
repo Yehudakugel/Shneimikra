@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}Medals{% endblock %}
+{% block body %}
+<h1>{{ me.name }}</h1>
+<div class="stats">
+  <div class="stat"><b>{{ st.rw.gold|length }}</b><span>gold marks</span></div>
+  <div class="stat"><b>{{ st.rw.black|length }}</b><span>black marks</span></div>
+  <div class="stat"><b>{{ st.rw.streak_weeks }}</b><span>week streak · best {{ st.rw.best_weeks }}</span></div>
+</div>
+<div class="section"><h2>Medals</h2>
+<div class="medals">
+  {% for m in st.rw.gold %}<div class="medal gold"><div class="m"></div>{{ m.label }}</div>{% endfor %}
+  {% for m in st.rw.black %}<div class="medal black"><div class="m"></div>{{ m.label }}</div>{% endfor %}
+  {% if not st.rw.gold %}<div class="medal locked"><div class="m"></div>Your first perfect week</div>{% endif %}
+  {% if not st.rw.black %}<div class="medal locked"><div class="m"></div>Ten weeks in a row, or a Chumash</div>{% endif %}
+</div>
+<p class="small muted" style="margin-top:18px"><span class="mark gold"></span>Gold – a perfect week: all seven portions completed between Sunday and Shabbos (US Eastern time).<br>
+<span class="mark black"></span>Black – a rare honor: each ten perfect weeks in a row, and each completed Chumash.</p>
+</div>
+<div class="section tiers"><h2>Streak</h2>
+<p class="muted">This week: {{ st.rw.this_week }} of 7. Complete all seven each week to extend your streak; a missed week resets it.</p>
+{% for t in rewards.TIERS %}<div class="t {{ 'on' if st.rw.tier.name == t.name }}"><div><b style="font-weight:500">{{ t.name }}</b> <span class="muted small">· {{ t.weeks }}+ weeks</span><div class="small muted">{{ t.prize_level }}</div></div><div style="font-variant-numeric:tabular-nums">×{{ t.mult }}</div></div>{% endfor %}
+{% if st.rw.next_tier %}<p class="small muted" style="margin-top:14px">{{ st.rw.next_tier.weeks - st.rw.streak_weeks }} more perfect week{{ 's' if st.rw.next_tier.weeks - st.rw.streak_weeks != 1 }} to reach {{ st.rw.next_tier.name }}.</p>{% endif %}
+</div>
+<div class="section"><h2>Phone hotline</h2>
+<p class="muted">Link your phone so the hotline recognises you, or set a PIN to call from any phone.</p>
+<form method="post"><input type="hidden" name="csrf" value="{{ csrf }}">
+  <label for="name">Name</label><input id="name" name="name" value="{{ me.name }}">
+  <label for="phone">US phone number</label><input id="phone" name="phone" type="tel" inputmode="tel" placeholder="(718) 555-0123" value="{{ me.phone|phone }}">
+  <label for="pin">Hotline PIN <span class="muted">(4–6 digits)</span></label><input id="pin" name="pin" inputmode="numeric" pattern="[0-9]{4,6}" placeholder="4821" value="{{ me.pin or '' }}">
+  <button class="btn" style="margin-top:20px">Save</button>
+</form></div>
+{% if cards %}<div class="section"><h2>Cards</h2><div class="list">{% for c in cards %}<div style="display:flex;justify-content:space-between;gap:12px"><span>{{ c.prize }}</span><span class="small muted" style="white-space:nowrap">{{ plan.PORTIONS[c.portion_idx].parsha }} · {{ plan.PORTIONS[c.portion_idx].aliyah_en }}</span></div>{% endfor %}</div></div>{% endif %}
+{% endblock %}

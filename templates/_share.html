@@ -1,0 +1,2 @@
+{% from "_icons.html" import icon %}{% set share_text = setting('share_text') ~ " " ~ request.url_root %}
+<a class="btn secondary" target="_blank" rel="noopener" href="https://wa.me/?text={{ share_text|urlencode }}">{{ icon('share', 20) }} Share on WhatsApp</a>

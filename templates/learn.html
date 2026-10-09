@@ -1,0 +1,240 @@
+{% extends "base.html" %}
+{% from "_icons.html" import icon %}
+{% block title %}{{ p.parsha }} · {{ p.aliyah_en }}{% endblock %}
+{% block body %}
+{% for w in wins %}
+<div class="banner pop">
+  <div class="eyebrow">{{ w.title }}</div>
+  <h2 style="margin:6px 0">Mazel tov – you won.</h2><p class="muted" style="margin:0 0 10px">{{ w.prize }}. We will be in touch.</p>
+  <form method="post" action="{{ url_for('win_seen', draw_id=w.draw_id) }}" style="margin:0"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="btn small secondary">Done</button></form>
+</div>
+{% endfor %}
+{% if just_done is not none and next_p %}
+<div class="flash" role="status">{{ plan.PORTIONS[just_done].parsha }} · {{ plan.PORTIONS[just_done].aliyah_en }} is complete. Your next portion is below.</div>
+{% endif %}
+{% if active_draw %}
+<div class="notice on">{{ icon('gift', 20) }}<div><b>{{ active_draw.title }}</b> is open until {{ active_draw.ends_at|local('%A, %b %-d') }}. Each portion you finish is an entry{% if st.rw.mult > 1 %}, multiplied ×{{ st.rw.mult }} by your streak{% endif %}. Prize: {{ active_draw.prize }}.</div></div>
+{% else %}
+<div class="notice">{{ icon('gift', 20) }}<div>{{ setting('teaser') }}{% if st.rw.mult > 1 %} Your streak multiplies entries <b>×{{ st.rw.mult }}</b>.{% endif %}</div></div>
+{% endif %}
+
+<div class="stats">
+  <div class="stat"><b>{{ st.rw.streak_weeks }}</b><span>week streak</span></div>
+  <div class="stat"><b>{{ st.rw.this_week }}<span style="font-size:1rem;color:var(--ink3)">/7</span></b><span>this week</span></div>
+  <div class="stat"><b>{{ st.done }}</b><span>of {{ st.total }} portions</span></div>
+</div>
+<div class="bar" aria-label="Torah progress {{ st.pct }}%"><i style="width:{{ [st.pct,0.6]|max }}%"></i></div>
+<p class="small muted" style="margin:0">{{ st.pct }}% of the Torah · {% if st.on_track %}On track to finish by {{ plan.END_DATE.strftime('%B %Y') }}{% else %}{{ st.behind }} behind the calendar{% endif %}{% if st.next_level %} · Next: {{ st.next_level.title }}, {{ st.next_level.count - st.done }} to go{% endif %}</p>
+{% if unrevealed and not card %}<button class="btn quiet" style="margin-top:14px" onclick="openCard({{ unrevealed[0].id }})">{{ icon('gift', 20) }} {{ unrevealed|length }} card{{ 's' if unrevealed|length > 1 }} waiting to be revealed</button>{% endif %}
+
+<div class="ptitle">
+  <div class="eyebrow">{{ 'Today' if is_current else ('Completed' if is_done else 'Portion') }} · {{ p.day_en }}</div>
+  <div class="he" style="margin-top:10px">פרשת {{ p.parsha_he }} · {{ p.aliyah_he }}</div>
+  <h1>Parshas {{ p.parsha }} – {{ p.aliyah_en }}</h1>
+  <div class="small muted">{{ p.book_en }} · {{ p.ref }} · {{ p.verses|length }} pesukim</div>
+</div>
+
+<div class="modes" role="group" aria-label="Audio mode">
+  <button data-mode="tap">{{ icon('tap') }}Tap a line</button>
+  <button data-mode="auto">{{ icon('auto') }}Auto-read</button>
+  <button data-mode="listen">{{ icon('listen') }}Listen only</button>
+</div>
+<p id="modehelp"></p>
+
+<div class="player" id="player">
+  <div class="row">
+    <button id="speed" aria-label="Playback speed">1×</button>
+    <button id="prev" aria-label="Previous pasuk">{{ icon('prev') }}</button>
+    <button id="play" class="play" aria-label="Play">{{ icon('play', 24) }}</button>
+    <button id="next" aria-label="Next pasuk">{{ icon('next') }}</button>
+    <span style="width:48px"></span>
+  </div>
+  <input type="range" id="seek" min="0" max="1000" value="0" aria-label="Position">
+  <div class="note">{% if audio %}Placeholder voice – to be replaced by a reader's recording{% else %}Audio in preparation – using your device's Hebrew voice{% endif %}</div>
+</div>
+
+<div id="listen" class="listen" hidden>
+  <div class="ptitle" style="padding:0"><div class="he">פרשת {{ p.parsha_he }} · {{ p.aliyah_he }}</div></div>
+  <button class="bigplay" id="bigplay" aria-label="Play or pause">{{ icon('play', 48) }}</button>
+  <div class="now" id="listen-now">Pasuk 1 of {{ p.verses|length }}</div>
+  <div class="bar" style="max-width:360px;margin:12px auto"><i id="listen-bar" style="width:0%"></i></div>
+  <div class="small muted" id="listen-time" style="font-variant-numeric:tabular-nums">0:00</div>
+</div>
+
+<div id="text">
+{% for v in p.verses %}{% set vi = loop.index0 %}
+<div class="verse" id="v-{{ vi }}">
+  <div class="num">{{ v.label }}</div>
+  <div class="line he" data-v="{{ vi }}" data-kind="mikra1" id="l-{{ vi }}-mikra1"><span class="tag">מקרא</span><span class="t">{{ v.heb }}</span></div>
+  <div class="line he" data-v="{{ vi }}" data-kind="mikra2" id="l-{{ vi }}-mikra2"><span class="tag">מקרא</span><span class="t">{{ v.heb }}</span></div>
+  <div class="line he targum" data-v="{{ vi }}" data-kind="targum" id="l-{{ vi }}-targum"><span class="tag">תרגום</span><span class="t">{{ v.onk }}</span></div>
+</div>
+{% endfor %}
+</div>
+
+<div class="chazal"><div class="he">{{ chazal.he }}</div><div class="en">{{ chazal.en }}</div>
+<div class="src">{{ chazal.src_en }} · <span class="he">{{ chazal.src_he }}</span> · <a href="{{ chazal.url }}" target="_blank" rel="noopener">Source</a></div></div>
+
+{% if is_current %}
+<form method="post" action="{{ url_for('complete', idx=p.idx) }}" class="done-box" id="doneform"><input type="hidden" name="csrf" value="{{ csrf }}">
+  <h2>Finished today's portion?</h2>
+  <label class="check"><input type="checkbox" required> I read each pasuk twice and the Targum once.</label>
+  <button class="btn" name="source" value="app">{{ icon('check', 20) }} I finished today's portion</button>
+  <button class="btn secondary" name="source" value="sefer">{{ icon('book', 20) }} I learned it from my own Chumash</button>
+  <p class="small muted">Learning from a sefer counts the same toward your streak and entries.</p>
+</form>
+{% elif is_done %}
+<div class="done-box"><h2>Complete.</h2>{% if next_p %}<a class="btn" href="{{ url_for('learn') }}">Continue to my next portion</a>{% endif %}</div>
+{% endif %}
+<div style="margin-top:8px">{% include "_share.html" %}</div>
+
+{% if celebrate %}
+<div class="overlay" id="celebrate"><div class="box pop">
+  <div class="sealmark {{ 'big' if celebrate.big }}"></div>
+  <div class="eyebrow">{{ 'Milestone' if celebrate.big else 'Well done' }}</div>
+  <h2>{{ celebrate.title }}</h2>
+  <div class="he" style="font-family:var(--display-he);font-size:1.5rem;color:var(--gold);margin:4px 0 10px">{{ celebrate.he }}</div>
+  <p class="muted">{{ celebrate.msg }}</p>
+  {% if celebrate.big %}<p class="small muted">{{ st.done }} portions · {{ st.rw.gold|length }} gold mark{{ 's' if st.rw.gold|length != 1 }} · {{ st.rw.tier.name }}</p>{% endif %}
+  <div class="chazal" style="margin:16px 0;padding:18px 0;text-align:left"><div class="he" style="font-size:1.15rem">{{ chazal_big.he }}</div><div class="en small">{{ chazal_big.en }}</div><div class="src">{{ chazal_big.src_en }}</div></div>
+  <button class="btn" onclick="closeCelebrate()">Continue</button>
+</div></div>
+{% endif %}
+<div class="overlay" id="cardov" hidden><div class="box">
+  <div class="eyebrow">A small surprise</div>
+  <h2>Your card</h2><p class="muted small">Scratch with your finger, or tap Reveal.</p>
+  <div class="scratch" id="scratch"><div class="prize" id="prize"><span id="prizemark" class="sealmark quiet" style="width:36px;height:36px;margin:0"></span><span id="prizetxt">…</span></div><canvas id="scv" width="280" height="160"></canvas></div>
+  <button class="btn" id="revealbtn">Reveal</button>
+  <button class="btn secondary" id="cardclose" hidden onclick="location.href='{{ url_for('learn') }}'">Continue</button>
+</div></div>
+{% endblock %}
+{% block scripts %}
+{% if me.account_type == 'tour' %}
+<div id="tour" style="position:fixed;left:10px;right:10px;bottom:10px;z-index:90;background:rgba(255,255,255,.94);-webkit-backdrop-filter:blur(20px);backdrop-filter:blur(20px);color:#1d1d1f;border:1px solid #e8e8ed;border-radius:18px;padding:18px;box-shadow:0 12px 40px rgba(0,0,0,.14);max-width:560px;margin:0 auto">
+  <div class="eyebrow">Guided tour · <span id="tstep"></span></div>
+  <div id="ttext" style="font-size:1rem;margin:6px 0 12px"></div>
+  <div style="display:flex;gap:8px"><button class="btn small secondary" id="tskip" style="flex:1">Close</button><button class="btn small" id="tnext" style="flex:2">Next</button></div>
+</div>
+<script>
+const TOUR = [
+  [".stats", "Your week streak, this week's portions, and your progress through the Torah."],
+  [".modes", "Choose how to learn: tap a line to hear only that line, auto-read straight through, or listen only. Your choice is remembered."],
+  ["#player", "The player: play and pause, move a pasuk back or forward, and change speed. The voice is a placeholder until a reader is recorded."],
+  ["#text .verse", "Each pasuk appears twice, then Onkelos. The line being read is highlighted and scrolls into view."],
+  [".chazal", "Each day, a line from Chazal or the poskim on Shnayim Mikra, with its exact source."],
+  ["#doneform", "When you finish, mark it done – or note that you learned from your own Chumash. A small surprise card follows, and the next portion opens."],
+  ["nav.tabs", "Medals, prizes, and the phone hotline are in the menu above. Hatzlacha."],
+];
+let ti = 0;
+function showT() { document.querySelectorAll(".tour-hl").forEach(e => { e.classList.remove("tour-hl"); e.style.outline = ""; });
+  const [sel, txt] = TOUR[ti]; const el = document.querySelector(sel);
+  if (el) { el.classList.add("tour-hl"); el.style.outline = "2px solid #a8894f"; el.style.outlineOffset = "4px"; el.scrollIntoView({ behavior: "smooth", block: "center" }); }
+  document.getElementById("ttext").textContent = txt; document.getElementById("tstep").textContent = (ti + 1) + " / " + TOUR.length;
+  document.getElementById("tnext").textContent = ti == TOUR.length - 1 ? "Finish" : "Next"; }
+document.getElementById("tnext").onclick = () => { if (++ti >= TOUR.length) return document.getElementById("tskip").click(); showT(); };
+document.getElementById("tskip").onclick = () => { document.getElementById("tour").remove(); document.querySelectorAll(".tour-hl").forEach(e => e.style.outline = ""); };
+window.addEventListener("load", () => setTimeout(showT, 400));
+</script>
+{% endif %}
+<script>
+const IDX = {{ p.idx }}, CSRF = {{ csrf|tojson }};
+const AUDIO = {{ audio|tojson }};
+const VERSES = {{ p.verses|map(attribute='heb')|list|tojson }}, ONK = {{ p.verses|map(attribute='onk')|list|tojson }};
+const NV = VERSES.length;
+// segments: from timing file (real or TTS), or synthesized list for browser speech fallback
+const SEGS = AUDIO ? AUDIO.segments : [].concat(...VERSES.map((_, v) => ["mikra1", "mikra2", "targum"].map(k => ({ v, kind: k }))));
+const audio = AUDIO ? new Audio("{{ url_for('static', filename='audio/') }}" + IDX + ".mp3") : null;
+let mode = {{ (me.audio_mode or 'auto')|tojson }}, cur = -1, stopAt = null, playing = false, rate = 1;
+const $ = s => document.querySelector(s);
+const HELP = { tap: "Tap any line to hear only that line.", auto: "Press play. The reader continues line by line.", listen: "Audio only – for children, or on the road." };
+function setMode(m, save) {
+  mode = m; document.querySelectorAll(".modes button").forEach(b => b.setAttribute("aria-pressed", b.dataset.mode == m));
+  $("#text").hidden = m == "listen"; $("#player").hidden = m == "listen"; $("#listen").hidden = m != "listen"; $("#modehelp").textContent = HELP[m];
+  stopAt = null;
+  if (save) fetch("{{ url_for('pref_audio_mode') }}", { method: "POST", headers: { "X-CSRF": CSRF, "Content-Type": "application/x-www-form-urlencoded" }, body: "mode=" + m + "&csrf=" + encodeURIComponent(CSRF) });
+}
+document.querySelectorAll(".modes button").forEach(b => b.onclick = () => { pause(); setMode(b.dataset.mode, true); });
+function highlight(i) {
+  if (i == cur) return; cur = i;
+  document.querySelectorAll(".line.on").forEach(e => e.classList.remove("on"));
+  if (i < 0) return;
+  const s = SEGS[i], el = document.getElementById(`l-${s.v}-${s.kind}`);
+  if (el) { el.classList.add("on"); if (mode != "listen") el.scrollIntoView({ behavior: "smooth", block: "center" }); }
+  $("#listen-now").textContent = `Pasuk ${s.v + 1} of ${NV} · ${s.kind == "targum" ? "Targum" : "Mikra"}`;
+}
+function segAt(t) { for (let i = SEGS.length - 1; i >= 0; i--) if (t >= SEGS[i].start - 0.05) return i; return 0; }
+function fmt(t) { t = Math.floor(t); return Math.floor(t / 60) + ":" + String(t % 60).padStart(2, "0"); }
+const ICO_PLAY = (s) => `<svg class="ico" width="${s}" height="${s}" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5v13l10.5-6.5z" fill="currentColor"/></svg>`;
+const ICO_PAUSE = (s) => `<svg class="ico" width="${s}" height="${s}" viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="5.5" width="3.2" height="13" rx="1" fill="currentColor"/><rect x="13.8" y="5.5" width="3.2" height="13" rx="1" fill="currentColor"/></svg>`;
+function setBtn() { $("#play").innerHTML = playing ? ICO_PAUSE(24) : ICO_PLAY(24); $("#play").setAttribute("aria-label", playing ? "Pause" : "Play");
+  $("#bigplay").innerHTML = playing ? ICO_PAUSE(48) : ICO_PLAY(48); }
+// ---- real audio file path ----
+if (audio) {
+  audio.preload = "metadata";
+  audio.addEventListener("timeupdate", () => {
+    const t = audio.currentTime;
+    if (stopAt !== null && t >= stopAt) { audio.pause(); stopAt = null; }
+    highlight(segAt(t));
+    const pct = AUDIO.duration ? t / AUDIO.duration : 0; $("#seek").value = pct * 1000; $("#listen-bar").style.width = pct * 100 + "%";
+    $("#listen-time").textContent = fmt(t) + " / " + fmt(AUDIO.duration);
+  });
+  audio.addEventListener("play", () => { playing = true; setBtn(); });
+  audio.addEventListener("pause", () => { playing = false; setBtn(); });
+  audio.addEventListener("ended", () => { playing = false; setBtn(); });
+}
+// ---- browser speech fallback ----
+const hasTTS = "speechSynthesis" in window;
+function strip(t) { return t.replace(/[\u0591-\u05AF\u05BD\u05C0\u05C3]/g, "").replace(/\u05BE/g, " "); }
+function speakSeg(i, chain) {
+  if (!hasTTS || i >= SEGS.length) { playing = false; setBtn(); return; }
+  speechSynthesis.cancel(); highlight(i); playing = true; setBtn();
+  const s = SEGS[i], u = new SpeechSynthesisUtterance(strip(s.kind == "targum" ? ONK[s.v] : VERSES[s.v]));
+  u.lang = "he-IL"; u.rate = 0.85 * rate;
+  u.onend = () => { if (playing && chain) speakSeg(i + 1, true); else { playing = false; setBtn(); } };
+  speechSynthesis.speak(u);
+}
+function playSeg(i, only) {
+  i = Math.max(0, Math.min(SEGS.length - 1, i));
+  if (audio) { audio.currentTime = SEGS[i].start; stopAt = only ? SEGS[i].end : null; highlight(i); audio.play(); }
+  else speakSeg(i, !only);
+}
+function pause() { if (audio) audio.pause(); else { playing = false; if (hasTTS) speechSynthesis.cancel(); setBtn(); } }
+function toggle() { if (playing) pause(); else { if (audio) { stopAt = null; audio.play(); } else speakSeg(Math.max(cur, 0), true); } }
+$("#play").onclick = toggle; $("#bigplay").onclick = toggle;
+$("#prev").onclick = () => { const v = cur >= 0 ? SEGS[cur].v : 0; playSeg(SEGS.findIndex(s => s.v == Math.max(0, v - 1)), mode == "tap"); };
+$("#next").onclick = () => { const v = cur >= 0 ? SEGS[cur].v : -1; const i = SEGS.findIndex(s => s.v == v + 1); if (i >= 0) playSeg(i, mode == "tap"); };
+$("#speed").onclick = () => { rate = rate == 1 ? 1.25 : rate == 1.25 ? 0.75 : 1; if (audio) audio.playbackRate = rate; $("#speed").textContent = rate + "×"; };
+$("#seek").oninput = e => { if (audio) audio.currentTime = e.target.value / 1000 * AUDIO.duration; };
+document.querySelectorAll(".line").forEach(el => el.onclick = () => {
+  const i = SEGS.findIndex(s => s.v == +el.dataset.v && s.kind == el.dataset.kind);
+  playSeg(i, mode == "tap");
+});
+setMode(mode, false);
+// ---- celebration + scratch card ----
+const CARD = {{ (card.id if card else none)|tojson }};
+function closeCelebrate() { $("#celebrate").remove(); if (CARD) openCard(CARD); }
+{% if celebrate %}window.addEventListener("load", () => { FX.confetti({{ 3600 if celebrate.big else 2200 }}, {{ 90 if celebrate.big else 50 }}); try { {{ 'FX.sounds.fanfare()' if celebrate.big else 'FX.sounds.check()' }}; } catch (e) {} });
+{% elif card %}window.addEventListener("load", () => { try { FX.sounds.check(); } catch (e) {} openCard(CARD); });{% endif %}
+let revealed = null;
+function openCard(id) {
+  $("#cardov").hidden = false; const c = $("#scv"), x = c.getContext("2d");
+  x.globalCompositeOperation = "source-over"; x.fillStyle = "#d8c7a1"; x.fillRect(0, 0, 280, 160);
+  x.strokeStyle = "rgba(255,255,255,.5)"; x.lineWidth = 1; x.strokeRect(8.5, 8.5, 263, 143);
+  x.fillStyle = "#5c4a26"; x.font = "500 15px -apple-system, Inter, sans-serif"; x.textAlign = "center"; x.fillText("Scratch to reveal", 140, 85);
+  let down = false, n = 0, asked = false;
+  const fetchPrize = () => { if (asked) return; asked = true;
+    fetch(`/scratch/${id}/reveal`, { method: "POST", headers: { "X-CSRF": CSRF } }).then(r => r.json()).then(d => { revealed = d; $("#prizetxt").textContent = d.prize; $("#prizemark").className = d.win ? "sealmark" : "sealmark quiet"; }); };
+  const scr = e => { if (!down) return; fetchPrize(); const r = c.getBoundingClientRect(); const p = e.touches ? e.touches[0] : e;
+    x.globalCompositeOperation = "destination-out"; x.beginPath(); x.arc(p.clientX - r.left, p.clientY - r.top, 22, 0, 7); x.fill();
+    if (++n % 4 == 0) FX.sounds.scratch(); if (n > 55) finish(); e.preventDefault(); };
+  c.onpointerdown = e => { down = true; scr(e); }; c.onpointermove = scr; window.onpointerup = () => down = false;
+  $("#revealbtn").onclick = () => { fetchPrize(); finish(); };
+  let done = false;
+  function finish() { if (done) return; done = true;
+    const go = () => { if (!revealed) return setTimeout(go, 120); c.style.transition = "opacity .5s"; c.style.opacity = 0; $("#prize").classList.add("pop");
+      if (revealed.win) { FX.sounds.win(); FX.confetti(2200, 60); } else FX.sounds.lose();
+      $("#revealbtn").hidden = true; $("#cardclose").hidden = false; };
+    go(); }
+}
+</script>
+{% endblock %}

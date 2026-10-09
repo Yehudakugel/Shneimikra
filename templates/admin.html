@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block body %}
+<h1>Admin</h1>
+{% include "_adminnav.html" %}
+<div class="stats" style="margin-top:12px"><div class="stat"><b>{{ users|length }}</b><span>users</span></div><div class="stat"><b>{{ total_completions }}</b><span>portions done</span></div><div class="stat"><b>{{ draws|length }}</b><span>draws</span></div></div>
+<div class="section"><h2>New surprise week</h2>
+<form method="post" action="{{ url_for('admin_new_draw') }}"><input type="hidden" name="csrf" value="{{ csrf }}">
+  <label>Title</label><input name="title" value="Surprise week">
+  <label>Prize from catalog</label>
+  <select name="prize_id">{% for p in prizes %}<option value="{{ p.id }}">{{ TIER_LABEL[p.tier] }} · {{ p.name }}{{ ' (needs %d+ week streak)'|format(p.min_weeks) if p.min_weeks }}</option>{% endfor %}<option value="">— custom prize (type below) —</option></select>
+  <label>Custom prize text (optional – overrides the name)</label><input name="prize" placeholder="leave empty to use the catalog prize">
+  <label>Window start (US Eastern)</label><input type="datetime-local" name="starts_at" value="{{ default_start }}">
+  <label>Window end (US Eastern)</label><input type="datetime-local" name="ends_at" value="{{ default_end }}">
+  <label>Number of winners</label><input type="number" name="num_winners" value="3" min="1" max="100">
+  <label>Prize level – minimum week streak to enter</label>
+  <select name="min_weeks"><option value="0">Everyone (regular prize)</option><option value="4">4+ weeks (silver prize)</option><option value="10">10+ weeks (gold prize)</option><option value="13">13+ weeks (3-month champions – big prizes)</option><option value="20">20+ weeks (grand-finale car)</option></select>
+  <p class="muted" style="font-size:.85rem">The prize's own tier sets a minimum too – the stricter of the two applies.</p>
+  <label class="check" style="margin-top:18px"><input type="checkbox" name="announced" checked> Announce to learners now. Leave unchecked for an unannounced, after-the-fact draw.</label>
+  <button class="btn" style="margin-top:18px">Create</button>
+</form>
+<p class="small muted">Entries = portions completed inside the window × the person's streak multiplier at the window end (×1 / ×2 at 4 weeks / ×3 at 10 / ×4 at 13 / ×5 at 20) + bonus entries won on scratch cards in the window. Winners are drawn with a cryptographically secure random generator, weighted by entries; a person can win once per draw. Results are stored with a timestamp and an entries snapshot.</p>
+</div>
+{% for d in draws %}
+<div class="section"><div class="eyebrow">{{ 'Drawn' if d.status == 'drawn' else 'Open' }}</div><h2 style="margin-top:4px">{{ d.title }}</h2>
+<div class="small muted">{{ d.prize }} · {{ d.starts_at|local }} → {{ d.ends_at|local }} ET · {{ d.num_winners }} winner(s) · {{ 'announced' if d.announced else 'secret' }}{% if d.min_weeks %} · {{ d.min_weeks }}+ week streak only{% endif %}</div>
+{% if d.status == 'open' %}
+  {% set rows = info[d.id] %}
+  <p>{{ rows|length }} eligible learners · {{ rows|sum(attribute='n') }} entries</p>
+  {% if rows %}<table><tr><th>Learner</th><th>Portions</th><th>Streak</th><th>×</th><th>Bonus</th><th>Entries</th></tr>
+  {% for r in rows %}<tr><td>{{ r.name }} <span class="muted">@{{ r.username }}</span></td><td>{{ r.portions }}</td><td>{{ r.streak }}w</td><td>×{{ r.mult }}</td><td>{{ r.bonus }}</td><td>{{ r.n }}</td></tr>{% endfor %}</table>{% endif %}
+  <form method="post" action="{{ url_for('admin_run_draw', did=d.id) }}" onsubmit="return confirm('Draw winners now? This is final.')"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="btn">Draw winners now</button></form>
+  <form method="post" action="{{ url_for('admin_delete_draw', did=d.id) }}"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="btn small secondary">Delete</button></form>
+{% else %}
+  <p>Drawn {{ d.drawn_at|local }} ET from {{ d.total_entries }} entries / {{ d.total_participants }} learners:</p>
+  <div class="list">{% for w in ws.get(d.id, []) %}<div>{{ w.rank }}. {{ w.name }} <span class="muted small">· {{ w.entries }} entries</span></div>{% endfor %}</div>
+{% endif %}
+</div>
+{% endfor %}
+<div class="section" style="overflow-x:auto"><h2>Users</h2><table><tr><th>Name</th><th>Done</th><th>Phone</th><th>Last</th></tr>
+{% for u in users %}<tr><td>{{ u.name }} <span class="muted">@{{ u.username }}{{ ' (admin)' if u.is_admin }}</span></td><td>{{ u.done }}</td><td>{{ u.phone|phone }}</td><td>{{ u.last|local('%b %d %H:%M') if u.last }}</td></tr>{% endfor %}</table></div>
+{% endblock %}

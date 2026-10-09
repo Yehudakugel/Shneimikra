@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block body %}
+<h1>Prize catalog</h1>
+{% include "_adminnav.html" %}
+<div class="flash">All prizes are sample placeholders. No sponsor has committed yet; edit names, sponsors and values before launch.</div>
+<p class="small muted"><b style="font-weight:500">Instant</b> prizes are what the tap-to-win card can give (picked by weight). <b style="font-weight:500">Raffle</b> and <b style="font-weight:500">Grand</b> prizes are given in admin draws. “Min streak” = how many perfect weeks in a row a learner needs to be eligible.</p>
+{% for p in prizes %}
+<details style="padding:16px 0;border-bottom:1px solid var(--line2);{{ '' if p.active else 'opacity:.5' }}">
+  <summary><div>{{ p.name }}</div><span class="small muted">· {{ p.category }} · {{ TIER_LABEL[p.tier] }}{{ ' · %d+ wk'|format(p.min_weeks) if p.min_weeks }}{{ ' · placeholder' if p.placeholder }}{{ ' · off' if not p.active }}</span></summary>
+  {% set f = p %}{% include "_prizeform.html" %}
+  <form method="post"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="id" value="{{ p.id }}"><input type="hidden" name="action" value="toggle"><button class="btn small secondary">{{ 'Turn off' if p.active else 'Turn on' }}</button></form>
+</details>
+{% endfor %}
+<details open style="padding:20px 0"><summary><h2>Add a prize</h2></summary>{% set f = None %}{% include "_prizeform.html" %}</details>
+{% endblock %}

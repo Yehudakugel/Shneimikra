@@ -1,0 +1,12 @@
+<form method="post"><input type="hidden" name="csrf" value="{{ csrf }}">{% if f %}<input type="hidden" name="id" value="{{ f.id }}">{% endif %}
+  <label>Name</label><input name="name" value="{{ f.name if f else '' }}" required>
+  <label>Category</label><select name="category">{% for c in ['Car','Cash / gift card','Home appliance','Sefarim','Seforim-store gift card','Subscription','Family outing','Kids','Bonus entries','Other'] %}<option {{ 'selected' if f and f.category==c }}>{{ c }}</option>{% endfor %}</select>
+  <label>Tier</label><select name="tier">{% for k, v in TIER_LABEL.items() %}<option value="{{ k }}" {{ 'selected' if f and f.tier==k }}>{{ v }}</option>{% endfor %}</select>
+  <label>Min week streak to be eligible</label><select name="min_weeks">{% for w in [0,4,10,13,20] %}<option value="{{ w }}" {{ 'selected' if f and f.min_weeks==w }}>{{ w }}{{ '+ weeks' if w else ' (everyone)' }}</option>{% endfor %}</select>
+  <label>Weight (instant wins: higher = more common)</label><input type="number" name="weight" min="1" value="{{ f.weight if f else 1 }}">
+  <label>Bonus raffle entries it gives (instant wins)</label><input type="number" name="bonus_entries" min="0" value="{{ f.bonus_entries if f else 0 }}">
+  <label>Value / notes</label><input name="value" value="{{ f.value if f and f.value else '' }}">
+  <label>Sponsor</label><input name="sponsor" value="{{ f.sponsor if f and f.sponsor else '' }}">
+  <label class="check" style="margin-top:16px"><input type="checkbox" name="placeholder" {{ 'checked' if not f or f.placeholder }}> Sample / placeholder prize</label>
+  <button class="btn">Save</button>
+</form>

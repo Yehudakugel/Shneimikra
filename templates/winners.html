@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}Prizes{% endblock %}
+{% block body %}
+<h1>Prizes</h1>
+<p class="muted">Surprise draws open at unannounced times. Every portion you finish is an entry, multiplied by your streak – ×2 at four weeks, ×3 at ten, ×4 at thirteen, ×5 at twenty.</p>
+<div class="section"><h2>Winners</h2>
+{% for d in draws %}
+<div style="padding:14px 0;border-bottom:1px solid var(--line2)"><div class="eyebrow">{{ d.title }} · {{ d.drawn_at|local('%b %-d, %Y') }}</div><div style="margin:4px 0">{{ d.prize }}</div>
+<div class="muted small">{% for w in ws.get(d.id, []) %}{{ w.name|public_name }}{{ ', ' if not loop.last }}{% endfor %} · {{ d.total_entries }} entries from {{ d.total_participants }} learners</div></div>
+{% else %}<p class="muted">No draws yet. The first may open any week.</p>{% endfor %}
+</div>
+{% for tier, title, note in [('instant','Instant','Revealed on your card after each portion.'),('raffle','Draws','Awarded in surprise-week draws.'),('grand','Grand prizes','For top winners with long streaks.')] %}
+<div class="section"><h2>{{ title }}</h2><p class="small muted">{{ note }}</p>
+<div class="list">{% for p in prizes if p.tier == tier %}<div style="display:flex;justify-content:space-between;gap:12px"><span>{{ p.name }}</span>{% if p.min_weeks %}<span class="small muted" style="white-space:nowrap">{{ p.min_weeks }}+ weeks</span>{% endif %}</div>{% endfor %}</div></div>
+{% endfor %}
+<p class="small muted">Prizes shown are samples for the prototype.</p>
+{% if not me %}<a class="btn" href="{{ url_for('signup') }}">Get started</a>{% endif %}
+{% endblock %}

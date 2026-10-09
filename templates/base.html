@@ -1,0 +1,38 @@
+{% from "_icons.html" import icon %}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>{% block title %}{{ BRAND_HE }}{% endblock %} · {{ BRAND }}</title>
+<meta property="og:title" content="{{ BRAND }} – {{ TAGLINE }}">
+<meta property="og:description" content="Read along with a reader, mark it done, and finish the whole Torah this year.">
+<meta name="theme-color" content="#fbfbfd">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Frank+Ruhl+Libre:wght@400;500&family=Inter:wght@400;500;600&family=Noto+Serif+Hebrew:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v=11">
+<script src="{{ url_for('static', filename='fx.js') }}?v=11"></script>
+</head>
+<body>
+<header class="top"><div class="in">
+  <a class="brand" href="{{ url_for('learn') if me else url_for('landing') }}">{{ BRAND }}</a>
+  {% if me %}<form method="post" action="{{ url_for('logout') }}" style="margin:0"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="linkbtn">Log out</button></form>
+  {% else %}<a href="{{ url_for('login') }}" style="font-size:.9rem;color:var(--ink);padding:12px 0">Log in</a>{% endif %}
+</div></header>
+{% if me %}
+<nav class="tabs" aria-label="Main"><div class="in">
+  {% set ep = request.endpoint %}
+  <a href="{{ url_for('learn') }}" class="{{ 'on' if ep=='learn' }}">Today</a>
+  <a href="{{ url_for('progress') }}" class="{{ 'on' if ep=='progress' }}">Progress</a>
+  <a href="{{ url_for('profile') }}" class="{{ 'on' if ep=='profile' }}">Medals</a>
+  <a href="{{ url_for('winners') }}" class="{{ 'on' if ep=='winners' }}">Prizes</a>
+  <a href="{{ url_for('hotline_sim') }}" class="{{ 'on' if ep=='hotline_sim' }}">Hotline</a>
+  <a href="{{ url_for('how') }}" class="{{ 'on' if ep=='how' }}">How it works</a>
+  {% if me.is_admin %}<a href="{{ url_for('admin') }}" class="{{ 'on' if ep and ep.startswith('admin') }}">Admin</a>{% endif %}
+</div></nav>
+{% endif %}
+<main class="wrap">
+{% with msgs = get_flashed_messages(with_categories=true) %}{% for c, m in msgs %}<div class="flash {{ c }}" role="status">{{ m }}</div>{% endfor %}{% endwith %}
+{% block body %}{% endblock %}
+<footer>{{ BRAND }} · Prototype<br>Torah text: Miqra according to the Masorah, Targum Onkelos – via <a href="https://www.sefaria.org">Sefaria</a>.<br>Audio is a placeholder computer voice until a reader is recorded.</footer>
+</main>
+{% block scripts %}{% endblock %}
+</body></html>

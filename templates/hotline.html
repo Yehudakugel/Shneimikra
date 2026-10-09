@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% from "_icons.html" import icon %}
+{% block title %}Hotline{% endblock %}
+{% block body %}
+<h1>Hotline</h1>
+<p class="muted">A preview of the phone line. It uses the same call flow a real phone number will use. No number is connected yet.</p>
+<div class="list small muted" style="margin:8px 0 18px">
+<div><b style="color:var(--ink);font-weight:500">Main menu</b> – 1 whole portion · 2 line by line · 9 mark done</div>
+<div><b style="color:var(--ink);font-weight:500">Line by line</b> – 1 next · 2 repeat · 3 back · 9 done · 0 menu</div>
+</div>
+<div class="phone">
+  <label for="from" style="margin-top:0">Calling from</label>
+  <input id="from" type="tel" placeholder="(718) 555-0123" value="{{ (me.phone|phone) if me else '' }}">
+  <div class="small muted" style="margin:6px 0 14px">Leave empty to be asked for a PIN.</div>
+  <div class="screen"><div id="status">Ready</div><div class="log" id="log"></div></div>
+  <div class="keys">{% for k in ['1','2','3','4','5','6','7','8','9','*','0','#'] %}<button data-k="{{ k }}" aria-label="Key {{ k }}">{{ k }}</button>{% endfor %}</div>
+  <div class="callrow"><button id="call" aria-label="Call">{{ icon('phone', 26) }}</button><button id="hang" aria-label="Hang up">{{ icon('phone', 26) }}</button></div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const $ = s => document.querySelector(s);
+let gen = 0, gather = null, audio = new Audio(), digits = "";
+function log(t, c) { const d = document.createElement("div"); d.textContent = t; if (c) d.style.color = c; $("#log").appendChild(d); $("#log").scrollTop = 1e9; }
+function stopMedia() { audio.pause(); speechSynthesis.cancel(); }
+async function post(url, params) {
+  const r = await fetch(url, { method: "POST", headers: { "X-Hotline-Simulator": "1", "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams(params) });
+  return new DOMParser().parseFromString(await r.text(), "text/xml");
+}
+function say(text, g) { return new Promise(res => { if (g != gen) return res(); log("Voice: " + text); const u = new SpeechSynthesisUtterance(text); u.lang = "en-US"; u.onend = u.onerror = res; speechSynthesis.speak(u); }); }
+function play(url, g) { return new Promise(res => { if (g != gen) return res(); log("Audio: playing " + url.split("/").slice(-2).join("/")); audio.src = url; audio.onended = audio.onerror = res; audio.onpause = res; audio.play().catch(res); }); }
+async function runVerbs(nodes, g) {
+  for (const n of nodes) {
+    if (g != gen) return "stop";
+    const tag = n.tagName;
+    if (tag == "Say") await say(n.textContent, g);
+    else if (tag == "Play") await play(n.textContent, g);
+    else if (tag == "Hangup") { end("Call ended"); return "stop"; }
+    else if (tag == "Redirect") { const x = await post(n.textContent, { From: $("#from").value }); return run(x, g); }
+    else if (tag == "Gather") {
+      digits = "";
+      const gg = gather = { action: n.getAttribute("action"), num: +(n.getAttribute("numDigits") || 0), fin: n.getAttribute("finishOnKey") || "#", g, done: false };
+      $("#status").textContent = "Listening for keys…";
+      await runVerbs([...n.children], g);
+      if (gg.done || g != gen) return "stop";
+      const to = +(n.getAttribute("timeout") || 5) * 1000;
+      const got = await new Promise(res => { gg.resolve = res; setTimeout(() => res(false), to); });
+      if (gg.done || g != gen) return "stop";
+      gather = null;
+      if (digits) { return submit(gg); }
+    }
+  }
+}
+async function run(xml, g) { return runVerbs([...xml.documentElement.children], g); }
+function submit(gg) {
+  gg.done = true; gather = null; stopMedia(); const d = digits; digits = ""; log("Pressed " + d);
+  const g = ++gen; $("#status").textContent = "On call";
+  post(gg.action, { Digits: d, From: $("#from").value }).then(x => run(x, g));
+}
+document.querySelectorAll(".keys button").forEach(b => b.onclick = () => {
+  const k = b.dataset.k; try { FX.sounds.tick(); } catch (e) {}
+  if (!gather) return;
+  if (k == gather.fin) return submit(gather);
+  digits += k; if (gather.num && digits.length >= gather.num) submit(gather);
+});
+function end(t) { gen++; gather = null; stopMedia(); $("#status").textContent = t; log(t); }
+$("#call").onclick = async () => { end("Calling…"); $("#log").innerHTML = ""; const g = ++gen; $("#status").textContent = "On call";
+  const x = await post("{{ url_for('voice_incoming') }}", { From: $("#from").value, CallSid: "SIM" + Date.now() }); run(x, g); };
+$("#hang").onclick = () => end("Call ended");
+</script>
+{% endblock %}

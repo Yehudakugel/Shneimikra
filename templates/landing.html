@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block body %}
+<section class="hero">
+  <div class="he">{{ BRAND_HE }}</div>
+  <h1>The whole Torah.<br><span style="white-space:nowrap">One aliyah a day.</span></h1>
+  <p>Listen to a reader, follow each pasuk on screen, and mark it done. By next Simchas Torah, you will have finished the Torah.</p>
+  <a class="btn" href="{{ url_for('signup') }}">Get started</a>
+  <div style="margin-top:14px"><a class="textlink" href="{{ url_for('how') }}">Watch how it works {{ icon('arrow', 16) }}</a></div>
+</section>
+
+<section class="section">
+  <div class="features">
+    <div class="feature">{{ icon('listen', 28) }}<h3>Listen</h3><p>Each pasuk is read twice, then Onkelos – the line being read is gently highlighted.</p></div>
+    <div class="feature">{{ icon('book', 28) }}<h3>Read along</h3><p>Hebrew with nikud and te'amim. Learning from your own Chumash counts too.</p></div>
+    <div class="feature">{{ icon('check', 28) }}<h3>Mark it done</h3><p>Tomorrow's portion is ready. Your streak and progress are kept for you.</p></div>
+  </div>
+</section>
+
+{% set q = rewards.CHAZAL[0] %}
+<section class="section center">
+  <div class="quote">{{ q.he }}</div>
+  <p class="muted" style="max-width:32em;margin:18px auto 6px">{{ q.en }}</p>
+  <div class="small muted">{{ q.src_en }} · <a href="{{ q.url }}" target="_blank" rel="noopener">Source</a></div>
+</section>
+
+<section class="section">
+  <div class="eyebrow">Rewards</div>
+  <h2 style="font-size:1.7rem;margin-top:6px">Consistency, recognised.</h2>
+  <p class="muted">A gold mark for every complete week. A rare black mark for ten weeks in a row or a finished Chumash. Every portion is an entry in surprise draws – sefarim, gift cards, and a car for the grand finale.</p>
+  <div class="medals" style="margin-top:18px"><div class="medal gold"><div class="m"></div>Perfect week</div><div class="medal black"><div class="m"></div>Ten weeks · a Chumash</div></div>
+  <a class="textlink" href="{{ url_for('winners') }}">See prizes {{ icon('arrow', 16) }}</a>
+</section>
+
+<section class="section">
+  <div class="eyebrow">By phone</div>
+  <h2 style="font-size:1.7rem;margin-top:6px">No smartphone needed.</h2>
+  <p class="muted">Call the hotline, enter your PIN, and say it along – the whole portion or line by line.</p>
+</section>
+
+{% if winners %}<section class="section"><div class="eyebrow">Recent winners</div><div class="list" style="margin-top:8px">{% for w in winners %}<div><b style="font-weight:500">{{ w.name|public_name }}</b> <span class="muted">– {{ w.prize }}</span></div>{% endfor %}</div></section>{% endif %}
+
+<section class="section center">
+  <h2 style="font-size:1.7rem">Begin with Bereishis.</h2>
+  <a class="btn" href="{{ url_for('signup') }}" style="max-width:320px">Join {{ BRAND }}</a>
+  <div style="max-width:320px;margin:0 auto">{% include "_share.html" %}</div>
+</section>
+{% endblock %}

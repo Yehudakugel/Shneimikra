@@ -1,0 +1,6 @@
+data/app.db*
+data/secret.key
+data/ADMIN_PASSWORD.txt
+data/*.log
+__pycache__/
+vendor/

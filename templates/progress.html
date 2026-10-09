@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}Progress{% endblock %}
+{% block body %}
+<h1>Progress</h1>
+<div class="stats">
+  <div class="stat"><b>{{ st.done }}</b><span>portions</span></div>
+  <div class="stat"><b>{{ st.pct }}%</b><span>of the Torah</span></div>
+  <div class="stat"><b>{{ st.rw.streak_weeks }}</b><span>week streak</span></div>
+</div>
+<div class="bar"><i style="width:{{ [st.pct,0.6]|max }}%"></i></div>
+<p class="muted">One aliyah a day – Sunday is Rishon, Shabbos is Shevi'i – beginning with Bereishis on {{ plan.START_DATE.strftime('%B %-d, %Y') }} and completing the Torah on {{ plan.END_DATE.strftime('%B %-d, %Y') }}.{% if st.scheduled_portion %} Today's calendar portion is {{ st.scheduled_portion.parsha }}, {{ st.scheduled_portion.aliyah_en }}.{% endif %}</p>
+<div class="section" style="padding-bottom:12px"><h2>Levels</h2>
+<div class="list">{% for l in rewards.LEVELS %}<div style="display:flex;justify-content:space-between;{{ '' if st.done >= l.count else 'color:var(--ink3)' }}"><span><span class="mark {{ 'gold' if st.done >= l.count else '' }}" style="{{ '' if st.done >= l.count else 'box-shadow:inset 0 0 0 1px var(--line)' }}"></span>{{ l.title }}</span><span class="small muted">{{ l.count }}</span></div>{% endfor %}</div>
+</div>
+<div class="section"><h2>Parshiyos</h2>
+{% for ps in parshiyos %}
+<div class="prow"><div><div>{{ ps.name }}</div><div class="he small muted" style="text-align:left;direction:rtl;display:inline-block">{{ ps.he }}</div></div>
+  <div class="dots">{% for p in ps.portions %}<a href="{{ url_for('learn', idx=p.idx) }}" title="{{ p.aliyah_en }}" aria-label="{{ ps.name }} {{ p.aliyah_en }}{{ ' – done' if p.idx in st.done_set }}" class="{{ 'done' if p.idx in st.done_set else ('cur' if p.idx == cur else '') }}">{{ loop.index }}</a>{% endfor %}</div>
+</div>
+{% endfor %}
+</div>
+{% endblock %}
