@@ -95,7 +95,7 @@ def csrf_protect():
         abort(400, "Form expired - please go back and try again.")
 @app.context_processor
 def inject():
-    return {"me": current_user(), "csrf": session.get("csrf", ""), "active_draw": active_announced_draw(), "plan": plan, "rewards": rewards, "setting": setting, "BRAND": config.BRAND_NAME, "BRAND_HE": config.BRAND_HE, "TAGLINE": config.BRAND_TAGLINE}
+    return {"me": current_user(), "csrf": session.get("csrf", ""), "active_draw": active_announced_draw(), "plan": plan, "rewards": rewards, "setting": setting, "BRAND": config.BRAND_NAME, "BRAND_HE": config.BRAND_HE, "TAGLINE": config.BRAND_TAGLINE, "AUDIO_CREDIT": config.AUDIO_CREDIT if config.HEBREW_AUDIO == "pockettorah" else None}
 
 # ---------- progress logic ----------
 def done_set(uid):
@@ -122,9 +122,14 @@ def active_announced_draw():
     n = iso(now_utc())
     return db().execute("SELECT * FROM draws WHERE status='open' AND announced=1 AND starts_at<=? AND ends_at>=? ORDER BY ends_at LIMIT 1", (n, n)).fetchone()
 def audio_meta(idx):
-    p = os.path.join(BASE, "static/audio", f"{idx}.json")
-    if os.path.exists(p) and os.path.exists(p[:-5] + ".mp3"):
-        return json.load(open(p))
+    """Timing map for a portion. Uses PocketTorah (static/audio_pt) when config.HEBREW_AUDIO == "pockettorah"
+    and that portion has been built; otherwise the TTS build in static/audio. meta["dir"] tells the player where the mp3 is."""
+    dirs = (["audio_pt"] if config.HEBREW_AUDIO == "pockettorah" else []) + ["audio"]
+    for d in dirs:
+        p = os.path.join(BASE, "static", d, f"{idx}.json")
+        if os.path.exists(p) and os.path.exists(p[:-5] + ".mp3"):
+            m = json.load(open(p)); m["dir"] = d
+            return m
     return None
 
 # ---------- public pages ----------
@@ -432,13 +437,15 @@ def audio_clip(idx, seg):
     meta = audio_meta(idx)
     if not meta or not 0 <= seg < len(meta["segments"]): abort(404)
     d = os.path.join(BASE, "static/audio/clips"); os.makedirs(d, exist_ok=True)
-    out = os.path.join(d, f"{idx}_{seg}.mp3")
+    ver = meta.get("version", 1)   # new audio version -> new clip files (old cached clips are never reused)
+    name = f"{meta['dir']}_{idx}_{seg}_v{ver}.mp3"
+    out = os.path.join(d, name)
     if not os.path.exists(out):
         sg = meta["segments"][seg]
         subprocess.run(["ffmpeg", "-v", "error", "-y", "-ss", str(sg["start"]), "-to", str(sg["end"] + 0.15), "-i",
-                        os.path.join(BASE, "static/audio", f"{idx}.mp3"), "-c:a", "libmp3lame", "-b:a", "48k", out + ".tmp.mp3"], check=True)
+                        os.path.join(BASE, "static", meta["dir"], f"{idx}.mp3"), "-c:a", "libmp3lame", "-b:a", "48k", out + ".tmp.mp3"], check=True)
         os.replace(out + ".tmp.mp3", out)
-    return app.send_static_file(f"audio/clips/{idx}_{seg}.mp3")
+    return app.send_static_file(f"audio/clips/{name}")
 
 # ---------- phone hotline (TwiML-style webhooks) ----------
 # Ready for Twilio (or any TwiML-compatible provider): point the number's Voice webhook at POST /voice/incoming.
@@ -494,7 +501,7 @@ def voice_menu_choice():
     uid = call_uid(); t = request.values.get("t"); dg = request.values.get("Digits", "")
     i, _ = portion_intro(uid)
     if dg == "1":
-        return twiml(say("Say it along with the reader.") + f'<Play>{esc(absu("/static/audio/%d.mp3" % i))}</Play>' +
+        return twiml(say("Say it along with the reader.") + f'<Play>{esc(absu("/static/%s/%d.mp3?v=%s" % (audio_meta(i)["dir"], i, audio_meta(i).get("version", 1))))}</Play>' +
                      f'<Gather input="dtmf" numDigits="1" timeout="10" action="{vurl("voice_after_full", t=t)}" method="POST">' +
                      say("You reached the end of the portion. To mark it done, press 9. To hear it again, press 2. For the main menu, press 0.") + "</Gather>" + say("Goodbye!") + "<Hangup/>")
     if dg == "2": return twiml(f'<Redirect method="POST">{vurl("voice_line", t=t, i=0, help=1)}</Redirect>')

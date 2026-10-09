@@ -15,5 +15,6 @@
 </div>
 <div class="section"><h2>Try the guided tour</h2><p class="muted">Log in as <b>tour</b> with password <b>tour123</b>. The site walks you through each part.</p></div>
 {% if not me %}<a class="btn" href="{{ url_for('signup') }}">Get started</a>{% endif %}
+{% if AUDIO_CREDIT %}<p class="small muted" style="margin-top:24px">Torah audio: <a href="{{ AUDIO_CREDIT.url }}" target="_blank" rel="noopener">PocketTorah</a>, <a href="{{ AUDIO_CREDIT.license_url }}" target="_blank" rel="noopener">CC BY-SA</a>. The pesukim are cut per pasuk and repeated for Shnayim Mikra; the Targum is read by a computer voice.</p>{% endif %}
 {% include "_share.html" %}
 {% endblock %}

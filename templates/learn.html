@@ -50,7 +50,7 @@
     <span style="width:48px"></span>
   </div>
   <input type="range" id="seek" min="0" max="1000" value="0" aria-label="Position">
-  <div class="note">{% if audio %}Placeholder voice – to be replaced by a reader's recording{% else %}Audio in preparation – using your device's Hebrew voice{% endif %}</div>
+  <div class="note">{% if audio and audio.credit %}<a href="{{ audio.credit.url }}" target="_blank" rel="noopener">{{ audio.credit.text }}</a> · Targum: computer voice (placeholder){% elif audio %}Placeholder voice – to be replaced by a reader's recording{% else %}Audio in preparation – using your device's Hebrew voice{% endif %}</div>
 </div>
 
 <div id="listen" class="listen" hidden>
@@ -143,7 +143,7 @@ const VERSES = {{ p.verses|map(attribute='heb')|list|tojson }}, ONK = {{ p.verse
 const NV = VERSES.length;
 // segments: from timing file (real or TTS), or synthesized list for browser speech fallback
 const SEGS = AUDIO ? AUDIO.segments : [].concat(...VERSES.map((_, v) => ["mikra1", "mikra2", "targum"].map(k => ({ v, kind: k }))));
-const audio = AUDIO ? new Audio("{{ url_for('static', filename='audio/') }}" + IDX + ".mp3") : null;
+const audio = AUDIO ? new Audio("{{ url_for('static', filename='') }}" + AUDIO.dir + "/" + IDX + ".mp3?v=" + (AUDIO.version || 1)) : null;
 let mode = {{ (me.audio_mode or 'auto')|tojson }}, cur = -1, stopAt = null, playing = false, rate = 1;
 const $ = s => document.querySelector(s);
 const HELP = { tap: "Tap any line to hear only that line.", auto: "Press play. The reader continues line by line.", listen: "Audio only – for children, or on the road." };

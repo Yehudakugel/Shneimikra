@@ -1,0 +1,20 @@
+Schneimaker KP - third-party material
+=====================================
+
+Torah audio (Hebrew pesukim, chanted with trop) - PocketTorah
+  Source:  https://github.com/rneiss/PocketTorah  (https://www.pockettorah.com/)
+  Authors: PocketTorah - Russel Neiss & Rabbi Charlie Schwartz (developed with support of the Jewish New Media Innovation Fund)
+  License: Creative Commons Attribution-ShareAlike (CC BY-SA), as released by PocketTorah for its audio files and their
+           timing metadata. https://creativecommons.org/licenses/by-sa/3.0/
+  Used:    data/audio/Bereshit-1..7, Noach-1..7, Lech-Lecha-1..7 (mp3) and the matching word-timing label files.
+  Changes: each aliyah recording was cut into single pesukim using PocketTorah's word timings, edge silence trimmed,
+           loudness matched, each pasuk repeated twice and interleaved with a computer-voice Targum Onkelos
+           (build_pockettorah.py).
+  ShareAlike: the combined audio files in static/audio_pt/ (mp3 + json timing maps) are adaptations of PocketTorah's
+           work and are likewise licensed CC BY-SA. Credit is shown on /learn and on the How it works page.
+
+Word counts per pasuk: Westminster Leningrad Codex JSON as shipped in the PocketTorah repo (public domain text).
+
+Targum Onkelos and the Hebrew text shown on the site come from Sefaria (see fetch_texts.py).
+Targum audio (and the optional TTS Hebrew audio, config.HEBREW_AUDIO = "tts") is a placeholder computer voice
+(Microsoft Edge neural TTS "he-IL-AvriNeural") with a Hungarian-havara respelling (havara.py).
