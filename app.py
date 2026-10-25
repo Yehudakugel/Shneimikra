@@ -95,7 +95,7 @@ def csrf_protect():
         abort(400, "Form expired - please go back and try again.")
 @app.context_processor
 def inject():
-    return {"me": current_user(), "csrf": session.get("csrf", ""), "active_draw": active_announced_draw(), "plan": plan, "rewards": rewards, "setting": setting, "BRAND": config.BRAND_NAME, "BRAND_HE": config.BRAND_HE, "TAGLINE": config.BRAND_TAGLINE, "AUDIO_CREDIT": config.AUDIO_CREDIT if config.HEBREW_AUDIO == "pockettorah" else None}
+    return {"me": current_user(), "csrf": session.get("csrf", ""), "active_draw": active_announced_draw(), "plan": plan, "rewards": rewards, "setting": setting, "BRAND": config.BRAND_NAME, "BRAND_HE": config.BRAND_HE, "TAGLINE": config.BRAND_TAGLINE, "AUDIO_CREDIT": config.AUDIO_CREDIT if hebrew_audio() == "pockettorah" else None}
 
 # ---------- progress logic ----------
 def done_set(uid):
@@ -124,7 +124,7 @@ def active_announced_draw():
 def audio_meta(idx):
     """Timing map for a portion. Uses PocketTorah (static/audio_pt) when config.HEBREW_AUDIO == "pockettorah"
     and that portion has been built; otherwise the TTS build in static/audio. meta["dir"] tells the player where the mp3 is."""
-    dirs = (["audio_pt"] if config.HEBREW_AUDIO == "pockettorah" else []) + ["audio"]
+    dirs = (["audio_pt"] if hebrew_audio() == "pockettorah" else []) + ["audio"]
     for d in dirs:
         p = os.path.join(BASE, "static", d, f"{idx}.json")
         if os.path.exists(p) and os.path.exists(p[:-5] + ".mp3"):
@@ -382,6 +382,65 @@ def admin_settings():
                 db().execute("INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (k, v))
         db().commit(); flash("Settings saved.", "ok"); return redirect(url_for("admin_settings"))
     return render_template("admin_settings.html", keys=SETTINGS_DEFAULTS)
+# ---------- admin: voice / read-out engine ----------
+VOICE_DEFAULTS = {"voice_engine": "edge", "voice_he": "he-IL-AvriNeural", "voice_onk": "he-IL-AvriNeural", "voice_speed": "1.0",
+                  "voice_havara": "hungarian", "voice_pesukim_source": config.HEBREW_AUDIO, "voice_content": "mikra2_targum"}
+VOICE_CONTENT = {"mikra2_targum": "Pasuk twice + Onkelos (Shnayim Mikra)", "mikra1_targum": "Pasuk once + Onkelos",
+                 "mikra_only": "Pesukim only", "targum_only": "Onkelos only"}
+def vsetting(k):
+    r = db().execute("SELECT value FROM settings WHERE key=?", (k,)).fetchone()
+    return r[0] if r else VOICE_DEFAULTS[k]
+def voice_preview_text(havara_style, content):
+    import gen_audio
+    v = plan.PORTIONS[0]["verses"][0]
+    old = gen_audio.HAVARA; gen_audio.HAVARA = havara_style
+    try: heb, onk = gen_audio.tts_text(v["heb"]), gen_audio.tts_text(v["onk"], True)
+    finally: gen_audio.HAVARA = old
+    return {"mikra2_targum": [heb, heb, onk], "mikra1_targum": [heb, onk], "mikra_only": [heb], "targum_only": [onk]}.get(content, [heb, heb, onk])
+@app.route("/admin/voice", methods=["GET", "POST"])
+@admin_required
+def admin_voice():
+    import voice_engine, havara
+    preview = None
+    if request.method == "POST":
+        f = request.form
+        if f.get("voice_engine") not in voice_engine.ENGINES or f.get("voice_havara") not in havara.STYLES or f.get("voice_content") not in VOICE_CONTENT:
+            flash("Please pick from the lists.", "error"); return redirect(url_for("admin_voice"))
+        try: f_speed = str(min(1.5, max(0.6, float(f.get("voice_speed", "1")))))
+        except ValueError: f_speed = "1.0"
+        vals = {k: f.get(k, VOICE_DEFAULTS[k]).strip()[:80] for k in VOICE_DEFAULTS}; vals["voice_speed"] = f_speed
+        if vals["voice_pesukim_source"] not in ("pockettorah", "tts"): vals["voice_pesukim_source"] = "pockettorah"
+        for k, v in vals.items():
+            db().execute("INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (k, v))
+        db().commit()
+        if f.get("action") == "preview":
+            try:
+                parts = voice_preview_text(vals["voice_havara"], vals["voice_content"])
+                h = hashlib.sha1(json.dumps(vals, sort_keys=True).encode()).hexdigest()[:12]
+                d = os.path.join(BASE, "data", "voice_preview"); os.makedirs(d, exist_ok=True)
+                out = os.path.join(d, h + ".mp3")
+                if not os.path.exists(out):
+                    audio = b"".join(voice_engine.synth(t, vals["voice_engine"], vals["voice_onk" if (i == len(parts) - 1 and vals["voice_content"] != "mikra_only") else "voice_he"], vals["voice_speed"]) for i, t in enumerate(parts))
+                    open(out, "wb").write(audio)
+                session["voice_preview"] = h; flash("Saved – preview below (Bereishis 1:1).", "ok")
+            except Exception as e:
+                flash(f"Preview failed: {e}", "error")
+        else:
+            flash("Voice settings saved. They apply to the next audio build.", "ok")
+        return redirect(url_for("admin_voice"))
+    h = session.get("voice_preview")
+    if h and os.path.exists(os.path.join(BASE, "data", "voice_preview", h + ".mp3")): preview = url_for("admin_voice_preview", h=h)
+    return render_template("admin_voice.html", engines=voice_engine.status(), styles=havara.STYLES, contents=VOICE_CONTENT,
+                           cur={k: vsetting(k) for k in VOICE_DEFAULTS}, preview=preview)
+@app.route("/admin/voice/preview/<h>.mp3")
+@admin_required
+def admin_voice_preview(h):
+    from flask import send_from_directory
+    if not h.isalnum(): abort(404)
+    return send_from_directory(os.path.join(BASE, "data", "voice_preview"), h + ".mp3", mimetype="audio/mpeg")
+def hebrew_audio():
+    try: return vsetting("voice_pesukim_source")
+    except Exception: return config.HEBREW_AUDIO
 def account_tags(u, sm, done, last):
     tags = []
     if u["is_admin"]: tags.append("admin")

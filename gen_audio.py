@@ -11,7 +11,7 @@ import edge_tts
 import plan
 BASE = plan.BASE
 HAVARA = os.environ.get("HAVARA", "hungarian")   # "hungarian" (Chassidish) or "israeli" (plain TTS reading)
-CACHE = os.path.join(BASE, "data/tts_cache" + ("_hu" if HAVARA == "hungarian" else "")); os.makedirs(CACHE, exist_ok=True)
+CACHE = os.path.join(BASE, "data/tts_cache" + ({"hungarian": "_hu", "israeli": ""}.get(HAVARA, "_" + HAVARA))); os.makedirs(CACHE, exist_ok=True)
 OUT = os.path.join(BASE, "static/audio"); os.makedirs(OUT, exist_ok=True)
 VOICE = "he-IL-AvriNeural"; SR = 24000
 # Reading speed: was "-12%" (v1); "+1%" is ~15% quicker (1.01/0.88 = 1.15x) and keeps the natural pitch.
@@ -44,9 +44,9 @@ def tts_words(t, targum=False):
                 pre += ch
             name = "אֱלֹהִים" if ("\u05B4" in w and cons.endswith("יהוה")) else "אֲדֹנָי"
             w = pre + name
-        if HAVARA == "hungarian":
+        if HAVARA != "israeli":
             import havara
-            w = havara.hungarian(w)
+            w = havara.respell(w, HAVARA)
         if w.strip(): out.append((w.strip(), pause))
     if out: out[-1] = (out[-1][0], 0)
     return out
