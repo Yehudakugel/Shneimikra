@@ -63,7 +63,11 @@ def close_db(e):
     d = g.pop("db", None)
     if d: d.close()
 def init_db():
-    con = sqlite3.connect(DB); con.executescript(SCHEMA); con.commit(); con.close()
+    con = sqlite3.connect(DB); con.executescript(SCHEMA)
+    cols = {r[1] for r in con.execute("PRAGMA table_info(users)")}
+    for c, d in (("player_voice", "''"), ("read_order", "''"), ("play_speed", "''")):
+        if c not in cols: con.execute(f"ALTER TABLE users ADD COLUMN {c} TEXT NOT NULL DEFAULT {d}")
+    con.commit(); con.close()
 
 # ---------- auth helpers ----------
 def current_user():
@@ -121,15 +125,46 @@ def completion_times(uid):
 def active_announced_draw():
     n = iso(now_utc())
     return db().execute("SELECT * FROM draws WHERE status='open' AND announced=1 AND starts_at<=? AND ends_at>=? ORDER BY ends_at LIMIT 1", (n, n)).fetchone()
-def audio_meta(idx):
-    """Timing map for a portion. Uses PocketTorah (static/audio_pt) when config.HEBREW_AUDIO == "pockettorah"
-    and that portion has been built; otherwise the TTS build in static/audio. meta["dir"] tells the player where the mp3 is."""
-    dirs = (["audio_pt"] if hebrew_audio() == "pockettorah" else []) + ["audio"]
-    for d in dirs:
-        p = os.path.join(BASE, "static", d, f"{idx}.json")
-        if os.path.exists(p) and os.path.exists(p[:-5] + ".mp3"):
-            m = json.load(open(p)); m["dir"] = d
-            return m
+_VS_CACHE = {"t": 0, "v": []}
+def voice_sets():
+    """Registry of audio builds: every static/audio*/ folder with a voice.json manifest ({"label", "priority"}) or timing files.
+    A new voice model (e.g. static/audio_clone/ from gen_full_clone.py) appears automatically - no code change."""
+    import time
+    if time.time() - _VS_CACHE["t"] < 30: return _VS_CACHE["v"]
+    out = []
+    sd = os.path.join(BASE, "static")
+    for d in sorted(os.listdir(sd)):
+        full = os.path.join(sd, d)
+        if not (d.startswith("audio") and os.path.isdir(full)): continue
+        man = {}
+        mp = os.path.join(full, "voice.json")
+        if os.path.exists(mp):
+            try: man = json.load(open(mp))
+            except Exception: man = {}
+        if not man and not any(f.endswith(".json") for f in os.listdir(full)): continue
+        out.append({"id": d, "label": man.get("label") or d.replace("audio_", "").replace("_", " ").title(),
+                    "priority": int(man.get("priority", 100 if d == "audio_clone" else 20))})
+    out.sort(key=lambda v: -v["priority"]); _VS_CACHE.update(t=time.time(), v=out)
+    return out
+def _has(d, idx):
+    p = os.path.join(BASE, "static", d, f"{idx}.json")
+    return os.path.exists(p) and os.path.exists(p[:-5] + ".mp3")
+def audio_sets_for(idx):
+    """Voice sets that have this portion, best first. The admin 'Pesukim audio' = tts pushes PocketTorah below the computer voice."""
+    sets = [v for v in voice_sets() if _has(v["id"], idx)]
+    if hebrew_audio() != "pockettorah": sets.sort(key=lambda v: v["id"] == "audio_pt")
+    return sets
+def audio_meta(idx, prefer=None):
+    """Timing map for a portion from the preferred voice set if it has this portion, else the best available.
+    meta["dir"] tells the player where the mp3 is."""
+    sets = audio_sets_for(idx)
+    if prefer: sets.sort(key=lambda v: v["id"] != prefer)
+    for v in sets:
+        p = os.path.join(BASE, "static", v["id"], f"{idx}.json")
+        try: m = json.load(open(p))
+        except Exception: continue
+        m["dir"] = v["id"]; m["voice_label"] = v["label"]
+        return m
     return None
 
 # ---------- public pages ----------
@@ -191,7 +226,7 @@ def learn(idx=None):
     unrevealed = db().execute("SELECT id FROM scratch_cards WHERE user_id=? AND revealed_at IS NULL ORDER BY id", (u["id"],)).fetchall()
     chazal = rewards.chazal_for(idx)
     return render_template("learn.html", p=p, st=st, cur=cur, is_current=(idx == cur), is_done=(idx in st["done_set"]),
-                           audio=audio_meta(idx), wins=wins, just_done=jd, celebrate=celebrate, card=card, unrevealed=unrevealed,
+                           audio=audio_meta(idx, u["player_voice"] or None), voice_sets=audio_sets_for(idx), wins=wins, just_done=jd, celebrate=celebrate, card=card, unrevealed=unrevealed,
                            chazal=chazal, chazal_big=(rewards.CHAZAL[0] if celebrate and celebrate["big"] else rewards.chazal_for(st["done"] + 3)), next_p=plan.PORTIONS[cur] if cur is not None else None)
 SETTINGS_DEFAULTS = {"tap_win_chance": "0.30", "program_name": "Shnayim Mikra Challenge 5787",
     "teaser": "Surprise draws open at unannounced times – sefarim, gift cards, and a car for the grand finale.", "hotline_number": "(not connected yet)",
@@ -239,6 +274,19 @@ def pref_audio_mode():
     if m in ("tap", "auto", "listen"):
         db().execute("UPDATE users SET audio_mode=? WHERE id=?", (m, current_user()["id"])); db().commit()
     return jsonify({"ok": True, "mode": m})
+READ_ORDERS = ("ppo", "po", "aao", "ao", "p")
+@app.route("/pref/player", methods=["POST"])
+@login_required
+def pref_player():
+    f = request.form; uid = current_user()["id"]; out = {}
+    if f.get("voice") is not None and (f["voice"] == "" or f["voice"] in {v["id"] for v in voice_sets()}): out["player_voice"] = f["voice"]
+    if f.get("order") in READ_ORDERS: out["read_order"] = f["order"]
+    try:
+        sp = float(f.get("speed", "x"))
+        if 0.75 <= sp <= 1.5: out["play_speed"] = str(sp)
+    except ValueError: pass
+    for k, v in out.items(): db().execute(f"UPDATE users SET {k}=? WHERE id=?", (v, uid))
+    db().commit(); return jsonify({"ok": True, **out})
 @app.route("/win-seen/<int:draw_id>", methods=["POST"])
 @login_required
 def win_seen(draw_id):

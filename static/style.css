@@ -174,3 +174,9 @@ table{width:100%;border-collapse:collapse;font-size:.88rem}td,th{padding:12px 8p
 #hang .ico{transform:rotate(135deg)}
 footer{text-align:center;color:var(--ink3);font-size:.75rem;margin:48px 0 0;line-height:1.6}
 details summary{cursor:pointer;list-style:none}details summary::-webkit-details-marker{display:none}
+
+.pcontrols{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0 4px}
+.pcontrols .pc{flex:1 1 120px;display:flex;flex-direction:column;gap:4px;font:500 .72rem var(--sans);color:var(--ink2);letter-spacing:.02em;text-transform:uppercase}
+.pcontrols .pc-wide{flex:2 1 220px}
+.pcontrols select{min-height:44px;padding:10px 12px;font-size:.95rem;text-transform:none;letter-spacing:0;background:var(--fill);border-color:transparent;appearance:auto}
+.line.skip{opacity:.38}

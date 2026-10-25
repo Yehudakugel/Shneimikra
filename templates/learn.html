@@ -40,17 +40,27 @@
   <button data-mode="listen">{{ icon('listen') }}Listen only</button>
 </div>
 <p id="modehelp"></p>
+<div class="pcontrols" id="pcontrols" aria-label="Reading options">
+  <label class="pc"><span>Speed</span><select id="opt-speed">{% for r in [0.75, 0.9, 1.0, 1.1, 1.25, 1.5] %}<option value="{{ r }}">{{ r }}×</option>{% endfor %}</select></label>
+  <label class="pc"><span>Voice</span><select id="opt-voice">{% for v in voice_sets %}<option value="{{ v.id }}" {{ 'selected' if audio and audio.dir == v.id }}>{{ v.label }}</option>{% endfor %}{% if not voice_sets %}<option value="">Device voice</option>{% endif %}</select></label>
+  <label class="pc pc-wide"><span>Order</span><select id="opt-order">
+    <option value="ppo">Pasuk, pasuk, Targum</option>
+    <option value="po">Pasuk once, then Targum</option>
+    <option value="aao">Whole aliyah twice, then all Targum</option>
+    <option value="ao">Whole aliyah once, then all Targum</option>
+    <option value="p">Pesukim only</option></select></label>
+</div>
 
 <div class="player" id="player">
   <div class="row">
-    <button id="speed" aria-label="Playback speed">1×</button>
+    <span style="width:48px"></span>
     <button id="prev" aria-label="Previous pasuk">{{ icon('prev') }}</button>
     <button id="play" class="play" aria-label="Play">{{ icon('play', 24) }}</button>
     <button id="next" aria-label="Next pasuk">{{ icon('next') }}</button>
     <span style="width:48px"></span>
   </div>
   <input type="range" id="seek" min="0" max="1000" value="0" aria-label="Position">
-  <div class="note">{% if audio and audio.credit %}<a href="{{ audio.credit.url }}" target="_blank" rel="noopener">{{ audio.credit.text }}</a> · Targum: computer voice (placeholder){% elif audio %}Placeholder voice – to be replaced by a reader's recording{% else %}Audio in preparation – using your device's Hebrew voice{% endif %}</div>
+  <div class="note">{% if audio and audio.credit %}<a href="{{ audio.credit.url }}" target="_blank" rel="noopener">{{ audio.credit.text }}</a> · Targum: computer voice (placeholder){% elif audio %}{{ audio.voice_label or 'Computer voice' }}{% else %}Audio in preparation – using your device's Hebrew voice{% endif %}</div>
 </div>
 
 <div id="listen" class="listen" hidden>
@@ -144,16 +154,36 @@ const NV = VERSES.length;
 // segments: from timing file (real or TTS), or synthesized list for browser speech fallback
 const SEGS = AUDIO ? AUDIO.segments : [].concat(...VERSES.map((_, v) => ["mikra1", "mikra2", "targum"].map(k => ({ v, kind: k }))));
 const audio = AUDIO ? new Audio("{{ url_for('static', filename='') }}" + AUDIO.dir + "/" + IDX + ".mp3?v=" + (AUDIO.version || 1)) : null;
-let mode = {{ (me.audio_mode or 'auto')|tojson }}, cur = -1, stopAt = null, playing = false, rate = 1;
+let mode = {{ (me.audio_mode or 'auto')|tojson }}, cur = -1, playing = false, only = false, qpos = 0, gapTimer = null;
+const LS = k => { try { return localStorage.getItem("kp_" + k); } catch (e) { return null; } };
+const LSset = (k, v) => { try { localStorage.setItem("kp_" + k, v); } catch (e) {} };
+let rate = parseFloat({{ (me.play_speed or '')|tojson }} || LS("speed") || "1") || 1;
+let order = {{ (me.read_order or '')|tojson }} || LS("order") || "ppo";
 const $ = s => document.querySelector(s);
 const HELP = { tap: "Tap any line to hear only that line.", auto: "Press play. The reader continues line by line.", listen: "Audio only – for children, or on the road." };
+// ---- reading order: a queue of segment indexes into SEGS ----
+function segIdx(v, kind) { return SEGS.findIndex(s => s.v == v && s.kind == kind); }
+function buildQueue(o) {
+  const vs = [...Array(NV).keys()], q = [];
+  const add = (v, k) => { const i = segIdx(v, k); if (i >= 0) q.push(i); };
+  if (o == "ppo") vs.forEach(v => { add(v, "mikra1"); add(v, "mikra2"); add(v, "targum"); });
+  else if (o == "po") vs.forEach(v => { add(v, "mikra1"); add(v, "targum"); });
+  else if (o == "aao") { vs.forEach(v => add(v, "mikra1")); vs.forEach(v => add(v, "mikra2")); vs.forEach(v => add(v, "targum")); }
+  else if (o == "ao") { vs.forEach(v => add(v, "mikra1")); vs.forEach(v => add(v, "targum")); }
+  else vs.forEach(v => add(v, "mikra1"));
+  return q;
+}
+let Q = buildQueue(order);
+const dur = i => SEGS[i].end - SEGS[i].start;
+let QT = 0; function retotal() { QT = Q.reduce((a, i) => a + (AUDIO ? dur(i) : 1), 0); } retotal();
 function setMode(m, save) {
   mode = m; document.querySelectorAll(".modes button").forEach(b => b.setAttribute("aria-pressed", b.dataset.mode == m));
   $("#text").hidden = m == "listen"; $("#player").hidden = m == "listen"; $("#listen").hidden = m != "listen"; $("#modehelp").textContent = HELP[m];
-  stopAt = null;
+  only = false;
   if (save) fetch("{{ url_for('pref_audio_mode') }}", { method: "POST", headers: { "X-CSRF": CSRF, "Content-Type": "application/x-www-form-urlencoded" }, body: "mode=" + m + "&csrf=" + encodeURIComponent(CSRF) });
 }
 document.querySelectorAll(".modes button").forEach(b => b.onclick = () => { pause(); setMode(b.dataset.mode, true); });
+function savePref(k, v) { LSset(k, v); fetch("{{ url_for('pref_player') }}", { method: "POST", headers: { "X-CSRF": CSRF, "Content-Type": "application/x-www-form-urlencoded" }, body: k + "=" + encodeURIComponent(v) + "&csrf=" + encodeURIComponent(CSRF) }); }
 function highlight(i) {
   if (i == cur) return; cur = i;
   document.querySelectorAll(".line.on").forEach(e => e.classList.remove("on"));
@@ -162,53 +192,96 @@ function highlight(i) {
   if (el) { el.classList.add("on"); if (mode != "listen") el.scrollIntoView({ behavior: "smooth", block: "center" }); }
   $("#listen-now").textContent = `Pasuk ${s.v + 1} of ${NV} · ${s.kind == "targum" ? "Targum" : "Mikra"}`;
 }
-function segAt(t) { for (let i = SEGS.length - 1; i >= 0; i--) if (t >= SEGS[i].start - 0.05) return i; return 0; }
 function fmt(t) { t = Math.floor(t); return Math.floor(t / 60) + ":" + String(t % 60).padStart(2, "0"); }
 const ICO_PLAY = (s) => `<svg class="ico" width="${s}" height="${s}" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5v13l10.5-6.5z" fill="currentColor"/></svg>`;
 const ICO_PAUSE = (s) => `<svg class="ico" width="${s}" height="${s}" viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="5.5" width="3.2" height="13" rx="1" fill="currentColor"/><rect x="13.8" y="5.5" width="3.2" height="13" rx="1" fill="currentColor"/></svg>`;
 function setBtn() { $("#play").innerHTML = playing ? ICO_PAUSE(24) : ICO_PLAY(24); $("#play").setAttribute("aria-label", playing ? "Pause" : "Play");
   $("#bigplay").innerHTML = playing ? ICO_PAUSE(48) : ICO_PLAY(48); }
-// ---- real audio file path ----
+function progress() {
+  let done = 0; for (let k = 0; k < qpos && k < Q.length; k++) done += AUDIO ? dur(Q[k]) : 1;
+  if (audio && Q[qpos] !== undefined) done += Math.max(0, Math.min(dur(Q[qpos]), audio.currentTime - SEGS[Q[qpos]].start));
+  const pct = QT ? done / QT : 0; $("#seek").value = pct * 1000; $("#listen-bar").style.width = pct * 100 + "%";
+  $("#listen-time").textContent = fmt(done) + " / " + fmt(QT);
+}
+// ---- real audio file: play the queue by seeking between segments ----
+function startAt(p) {
+  clearTimeout(gapTimer); gapTimer = null;
+  if (p >= Q.length) { audio.pause(); qpos = Q.length; return; }
+  qpos = p; const i = Q[p]; highlight(i);
+  if (Math.abs(audio.currentTime - SEGS[i].start) > 0.05) audio.currentTime = SEGS[i].start;
+  audio.playbackRate = rate; audio.play();
+}
+function tick() {
+  if (!audio || audio.paused) return;
+  let i = Q[qpos]; const t = audio.currentTime;
+  if (only === false && (i === undefined || t < SEGS[i].start - 0.3 || t > SEGS[i].end + 1.2)) { // jumped (seek / external): resync the queue
+    let p = Q.findIndex(k => t >= SEGS[k].start - 0.05 && t < SEGS[k].end); if (p < 0) p = Q.findIndex(k => SEGS[k].start >= t);
+    if (p < 0) { audio.pause(); qpos = Q.length; return; }
+    if (t < SEGS[Q[p]].start - 0.05 || t >= SEGS[Q[p]].end) { startAt(p); return; }
+    qpos = p; i = Q[p];
+  }
+  if (only !== false) { if (t >= SEGS[only].end) { audio.pause(); only = false; } else highlight(only); }
+  else if (i !== undefined && t >= SEGS[i].end - 0.01) {
+    const nx = Q[qpos + 1];
+    if (nx === undefined) { gapTimer = null; audio.pause(); qpos = Q.length; }
+    else if (SEGS[nx].start >= SEGS[i].end && SEGS[nx].start - SEGS[i].end < 1.2) { qpos++; } // next segment follows in the file: let the natural pause play
+    else { audio.pause(); const p = qpos + 1; gapTimer = setTimeout(() => startAt(p), 550 / rate); playing = true; setBtn(); }
+  } else if (i !== undefined && t >= SEGS[i].start - 0.05) highlight(i);
+  progress(); requestAnimationFrame(tick);
+}
 if (audio) {
-  audio.preload = "metadata";
-  audio.addEventListener("timeupdate", () => {
-    const t = audio.currentTime;
-    if (stopAt !== null && t >= stopAt) { audio.pause(); stopAt = null; }
-    highlight(segAt(t));
-    const pct = AUDIO.duration ? t / AUDIO.duration : 0; $("#seek").value = pct * 1000; $("#listen-bar").style.width = pct * 100 + "%";
-    $("#listen-time").textContent = fmt(t) + " / " + fmt(AUDIO.duration);
-  });
-  audio.addEventListener("play", () => { playing = true; setBtn(); });
-  audio.addEventListener("pause", () => { playing = false; setBtn(); });
+  audio.preload = "metadata"; audio.preservesPitch = true; audio.mozPreservesPitch = true; audio.webkitPreservesPitch = true;
+  audio.addEventListener("play", () => { playing = true; setBtn(); requestAnimationFrame(tick); });
+  audio.addEventListener("pause", () => { if (!gapTimer || only !== false) { playing = false; setBtn(); } });
   audio.addEventListener("ended", () => { playing = false; setBtn(); });
 }
 // ---- browser speech fallback ----
 const hasTTS = "speechSynthesis" in window;
 function strip(t) { return t.replace(/[\u0591-\u05AF\u05BD\u05C0\u05C3]/g, "").replace(/\u05BE/g, " "); }
-function speakSeg(i, chain) {
-  if (!hasTTS || i >= SEGS.length) { playing = false; setBtn(); return; }
+function speak(i, after) {
+  if (!hasTTS) return;
   speechSynthesis.cancel(); highlight(i); playing = true; setBtn();
   const s = SEGS[i], u = new SpeechSynthesisUtterance(strip(s.kind == "targum" ? ONK[s.v] : VERSES[s.v]));
   u.lang = "he-IL"; u.rate = 0.85 * rate;
-  u.onend = () => { if (playing && chain) speakSeg(i + 1, true); else { playing = false; setBtn(); } };
+  u.onend = () => { if (playing && after) after(); else { playing = false; setBtn(); } };
   speechSynthesis.speak(u);
 }
-function playSeg(i, only) {
-  i = Math.max(0, Math.min(SEGS.length - 1, i));
-  if (audio) { audio.currentTime = SEGS[i].start; stopAt = only ? SEGS[i].end : null; highlight(i); audio.play(); }
-  else speakSeg(i, !only);
+function speakQ(p) { if (p >= Q.length) { playing = false; setBtn(); return; } qpos = p; progress(); speak(Q[p], () => speakQ(p + 1)); }
+// ---- controls ----
+function playLine(i) { // tap mode: one line only
+  clearTimeout(gapTimer); gapTimer = null;
+  if (audio) { only = i; audio.currentTime = SEGS[i].start; highlight(i); audio.playbackRate = rate; audio.play(); }
+  else speak(i, null);
 }
-function pause() { if (audio) audio.pause(); else { playing = false; if (hasTTS) speechSynthesis.cancel(); setBtn(); } }
-function toggle() { if (playing) pause(); else { if (audio) { stopAt = null; audio.play(); } else speakSeg(Math.max(cur, 0), true); } }
+function qposOf(i) { let p = Q.indexOf(i); if (p < 0) p = Q.findIndex(k => SEGS[k].v >= SEGS[i].v); return Math.max(0, p); }
+function playFrom(p) { only = false; if (audio) startAt(p); else speakQ(p); }
+function pause() { clearTimeout(gapTimer); gapTimer = null; if (audio) audio.pause(); if (hasTTS) speechSynthesis.cancel(); playing = false; setBtn(); }
+function toggle() { if (playing) pause(); else playFrom(qpos >= Q.length ? 0 : qpos); }
 $("#play").onclick = toggle; $("#bigplay").onclick = toggle;
-$("#prev").onclick = () => { const v = cur >= 0 ? SEGS[cur].v : 0; playSeg(SEGS.findIndex(s => s.v == Math.max(0, v - 1)), mode == "tap"); };
-$("#next").onclick = () => { const v = cur >= 0 ? SEGS[cur].v : -1; const i = SEGS.findIndex(s => s.v == v + 1); if (i >= 0) playSeg(i, mode == "tap"); };
-$("#speed").onclick = () => { rate = rate == 1 ? 1.25 : rate == 1.25 ? 0.75 : 1; if (audio) audio.playbackRate = rate; $("#speed").textContent = rate + "×"; };
-$("#seek").oninput = e => { if (audio) audio.currentTime = e.target.value / 1000 * AUDIO.duration; };
+function jumpVerse(d) {
+  const v = cur >= 0 ? SEGS[cur].v : (d > 0 ? -1 : 0), tv = Math.max(0, Math.min(NV - 1, v + d));
+  const start = qpos, cands = Q.map((k, p) => [k, p]).filter(([k]) => SEGS[k].v == tv && SEGS[k].kind == (cur >= 0 ? SEGS[cur].kind : "mikra1"));
+  const p = cands.length ? cands[0][1] : qposOf(segIdx(tv, "mikra1"));
+  if (mode == "tap") playLine(Q[p]); else playFrom(p);
+}
+$("#prev").onclick = () => jumpVerse(-1); $("#next").onclick = () => jumpVerse(1);
+$("#seek").oninput = e => { let target = e.target.value / 1000 * QT, acc = 0, p = 0;
+  for (; p < Q.length; p++) { const d = AUDIO ? dur(Q[p]) : 1; if (acc + d > target) break; acc += d; }
+  p = Math.min(p, Q.length - 1); qpos = p;
+  if (audio) { audio.currentTime = SEGS[Q[p]].start + (target - acc); highlight(Q[p]); progress(); if (playing) audio.play(); } };
 document.querySelectorAll(".line").forEach(el => el.onclick = () => {
-  const i = SEGS.findIndex(s => s.v == +el.dataset.v && s.kind == el.dataset.kind);
-  playSeg(i, mode == "tap");
+  const i = segIdx(+el.dataset.v, el.dataset.kind); if (i < 0) return;
+  if (mode == "tap") playLine(i); else playFrom(qposOf(i));
 });
+function applyOrderVisibility() { document.querySelectorAll(".line").forEach(el => el.classList.toggle("skip", !Q.includes(segIdx(+el.dataset.v, el.dataset.kind)))); }
+$("#opt-speed").value = String(rate); if ($("#opt-speed").value === "") $("#opt-speed").value = "1";
+$("#opt-speed").onchange = e => { rate = parseFloat(e.target.value); if (audio) audio.playbackRate = rate; savePref("speed", rate); };
+$("#opt-order").value = order;
+$("#opt-order").onchange = e => { const wasPlaying = playing; const curSeg = cur; pause(); order = e.target.value; Q = buildQueue(order); retotal(); applyOrderVisibility(); savePref("order", order);
+  qpos = curSeg >= 0 ? qposOf(curSeg) : 0; progress(); if (wasPlaying) playFrom(qpos); };
+$("#opt-voice").onchange = e => { pause(); savePref("voice", e.target.value); setTimeout(() => location.reload(), 250); };
+applyOrderVisibility(); progress();
+window.PLAYER = { get Q() { return Q; }, get qpos() { return qpos; }, get rate() { return rate; } };
 setMode(mode, false);
 // ---- celebration + scratch card ----
 const CARD = {{ (card.id if card else none)|tojson }};
