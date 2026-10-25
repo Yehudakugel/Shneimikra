@@ -5,3 +5,5 @@ data/*.log
 __pycache__/
 vendor/
 static/audio/clips/
+static/audio_clone_rehearsal/
+static/audio_rebuild/

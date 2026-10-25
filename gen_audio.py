@@ -13,10 +13,11 @@ BASE = plan.BASE
 HAVARA = os.environ.get("HAVARA", "hungarian")   # "hungarian" (Chassidish) or "israeli" (plain TTS reading)
 CACHE = os.path.join(BASE, "data/tts_cache" + ({"hungarian": "_hu", "israeli": ""}.get(HAVARA, "_" + HAVARA))); os.makedirs(CACHE, exist_ok=True)
 OUT = os.path.join(BASE, "static/audio"); os.makedirs(OUT, exist_ok=True)
-VOICE = "he-IL-AvriNeural"; SR = 24000
+VOICE = os.environ.get("TTS_VOICE", "he-IL-AvriNeural"); SR = 24000
+if VOICE != "he-IL-AvriNeural": CACHE = CACHE + "_" + VOICE.replace("-", "")
 # Reading speed: was "-12%" (v1); "+1%" is ~15% quicker (1.01/0.88 = 1.15x) and keeps the natural pitch.
 RATE = os.environ.get("TTS_RATE", "+1%")
-CACHE = CACHE + ("" if RATE == "-12%" else "_r" + RATE.replace("%", "").replace("+", "p").replace("-", "m")); os.makedirs(CACHE, exist_ok=True)
+os.makedirs(CACHE, exist_ok=True); CACHE = CACHE + ("" if RATE == "-12%" else "_r" + RATE.replace("%", "").replace("+", "p").replace("-", "m")); os.makedirs(CACHE, exist_ok=True)
 OUT = os.environ.get("AUDIO_OUT", OUT); os.makedirs(OUT, exist_ok=True)
 GAP_SHORT, GAP_LONG = 0.6, 0.9      # after each Hebrew reading (sof pasuk) / after Targum
 # Phrasing by the te'amim (trop): a pause is inserted after the word carrying the accent.

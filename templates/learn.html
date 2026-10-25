@@ -153,7 +153,7 @@ const VERSES = {{ p.verses|map(attribute='heb')|list|tojson }}, ONK = {{ p.verse
 const NV = VERSES.length;
 // segments: from timing file (real or TTS), or synthesized list for browser speech fallback
 const SEGS = AUDIO ? AUDIO.segments : [].concat(...VERSES.map((_, v) => ["mikra1", "mikra2", "targum"].map(k => ({ v, kind: k }))));
-const audio = AUDIO ? new Audio("{{ url_for('static', filename='') }}" + AUDIO.dir + "/" + IDX + ".mp3?v=" + (AUDIO.version || 1)) : null;
+const audio = AUDIO ? new Audio(AUDIO.src) : null;
 let mode = {{ (me.audio_mode or 'auto')|tojson }}, cur = -1, playing = false, only = false, qpos = 0, gapTimer = null;
 const LS = k => { try { return localStorage.getItem("kp_" + k); } catch (e) { return null; } };
 const LSset = (k, v) => { try { localStorage.setItem("kp_" + k, v); } catch (e) {} };
@@ -208,16 +208,30 @@ function startAt(p) {
   clearTimeout(gapTimer); gapTimer = null;
   if (p >= Q.length) { audio.pause(); qpos = Q.length; return; }
   qpos = p; const i = Q[p]; highlight(i);
-  if (Math.abs(audio.currentTime - SEGS[i].start) > 0.05) audio.currentTime = SEGS[i].start;
-  audio.playbackRate = rate; audio.play();
+  seekPlay(SEGS[i].start, Math.abs(audio.currentTime - SEGS[i].start) > 0.05);
 }
+// iOS Safari: seeking before metadata is ignored and playbackRate can reset on load/play - always (re)apply both.
+// WebKit also ignores a rate set while paused once a seek follows, so the rate is pushed only while playing.
+function applyRate() { if (!audio) return; audio.defaultPlaybackRate = rate;
+  if (!audio.paused && audio.playbackRate != rate) audio.playbackRate = rate; }
+function seekPlay(t, doSeek) {
+  const play = () => { applyRate(); const pr = audio.play(); if (pr && pr.catch) pr.catch(() => { playing = false; setBtn(); }); };
+  const go = () => { if (doSeek !== false) audio.currentTime = t; play(); };
+  if (audio.readyState >= 1) go(); else { audio.addEventListener("loadedmetadata", go, { once: true }); applyRate(); const pr = audio.play(); if (pr && pr.catch) pr.catch(() => {}); }
+}
+let lastT = -1, lastW = 0, ticking = false;
 function tick() {
-  if (!audio || audio.paused) return;
+  if (!audio || audio.paused) { ticking = false; return; }
+  ticking = true;
+  if (audio.seeking) { requestAnimationFrame(tick); return; } // currentTime is stale while a seek is pending (Safari/WebKit): never resync on it
   let i = Q[qpos]; const t = audio.currentTime;
+  // watchdog: some mobile decoders stall after a far seek at non-1x speed; a same-position seek restarts them
+  const w = performance.now();
+  if (t != lastT) { lastT = t; lastW = w; } else if (!audio.seeking && audio.readyState >= 3 && w - lastW > 2500) { lastW = w; audio.currentTime = t + 0.01; }
   if (only === false && (i === undefined || t < SEGS[i].start - 0.3 || t > SEGS[i].end + 1.2)) { // jumped (seek / external): resync the queue
     let p = Q.findIndex(k => t >= SEGS[k].start - 0.05 && t < SEGS[k].end); if (p < 0) p = Q.findIndex(k => SEGS[k].start >= t);
-    if (p < 0) { audio.pause(); qpos = Q.length; return; }
-    if (t < SEGS[Q[p]].start - 0.05 || t >= SEGS[Q[p]].end) { startAt(p); return; }
+    if (p < 0) { audio.pause(); qpos = Q.length; ticking = false; return; }
+    if (t < SEGS[Q[p]].start - 0.05 || t >= SEGS[Q[p]].end) { startAt(p); requestAnimationFrame(tick); return; }
     qpos = p; i = Q[p];
   }
   if (only !== false) { if (t >= SEGS[only].end) { audio.pause(); only = false; } else highlight(only); }
@@ -231,7 +245,9 @@ function tick() {
 }
 if (audio) {
   audio.preload = "metadata"; audio.preservesPitch = true; audio.mozPreservesPitch = true; audio.webkitPreservesPitch = true;
-  audio.addEventListener("play", () => { playing = true; setBtn(); requestAnimationFrame(tick); });
+  audio.addEventListener("loadedmetadata", applyRate); audio.addEventListener("playing", () => setTimeout(applyRate, 0)); audio.addEventListener("seeked", () => setTimeout(applyRate, 0));
+  audio.addEventListener("ratechange", () => { if (Math.abs(audio.playbackRate - rate) > 0.0015) setTimeout(applyRate, 0); });
+  audio.addEventListener("play", () => { playing = true; setBtn(); lastT = -1; if (!ticking) { ticking = true; requestAnimationFrame(tick); } });
   audio.addEventListener("pause", () => { if (!gapTimer || only !== false) { playing = false; setBtn(); } });
   audio.addEventListener("ended", () => { playing = false; setBtn(); });
 }
@@ -250,7 +266,7 @@ function speakQ(p) { if (p >= Q.length) { playing = false; setBtn(); return; } q
 // ---- controls ----
 function playLine(i) { // tap mode: one line only
   clearTimeout(gapTimer); gapTimer = null;
-  if (audio) { only = i; audio.currentTime = SEGS[i].start; highlight(i); audio.playbackRate = rate; audio.play(); }
+  if (audio) { only = i; highlight(i); seekPlay(SEGS[i].start); }
   else speak(i, null);
 }
 function qposOf(i) { let p = Q.indexOf(i); if (p < 0) p = Q.findIndex(k => SEGS[k].v >= SEGS[i].v); return Math.max(0, p); }
@@ -275,7 +291,7 @@ document.querySelectorAll(".line").forEach(el => el.onclick = () => {
 });
 function applyOrderVisibility() { document.querySelectorAll(".line").forEach(el => el.classList.toggle("skip", !Q.includes(segIdx(+el.dataset.v, el.dataset.kind)))); }
 $("#opt-speed").value = String(rate); if ($("#opt-speed").value === "") $("#opt-speed").value = "1";
-$("#opt-speed").onchange = e => { rate = parseFloat(e.target.value); if (audio) audio.playbackRate = rate; savePref("speed", rate); };
+$("#opt-speed").onchange = e => { rate = parseFloat(e.target.value); applyRate(); savePref("speed", rate); };
 $("#opt-order").value = order;
 $("#opt-order").onchange = e => { const wasPlaying = playing; const curSeg = cur; pause(); order = e.target.value; Q = buildQueue(order); retotal(); applyOrderVisibility(); savePref("order", order);
   qpos = curSeg >= 0 ? qposOf(curSeg) : 0; progress(); if (wasPlaying) playFrom(qpos); };

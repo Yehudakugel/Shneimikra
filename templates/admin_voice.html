@@ -15,11 +15,31 @@
   <label>What is read</label>
   <select name="voice_content">{% for k, l in contents.items() %}<option value="{{ k }}" {{ 'selected' if cur.voice_content==k }}>{{ l }}</option>{% endfor %}</select>
   <label>Pesukim audio</label>
-  <select name="voice_pesukim_source"><option value="pockettorah" {{ 'selected' if cur.voice_pesukim_source=='pockettorah' }}>With trop – PocketTorah recording</option><option value="tts" {{ 'selected' if cur.voice_pesukim_source=='tts' }}>Voice engine above (no trop)</option></select>
+  <select name="voice_pesukim_source"><option value="pockettorah" {{ 'selected' if cur.voice_pesukim_source=='pockettorah' }}>With trop – PocketTorah recording</option><option value="tts" {{ 'selected' if cur.voice_pesukim_source=='tts' }}>Voice engine above (no trop)</option><option value="clone" {{ 'selected' if cur.voice_pesukim_source=='clone' }} {{ '' if has_clone else 'disabled' }}>Licensed reader clone{{ '' if has_clone else ' – not built yet' }}</option></select>
   <div style="display:flex;gap:10px;margin-top:20px"><button class="btn" name="action" value="save">Save</button><button class="btn" name="action" value="preview" style="background:transparent;color:inherit;border:1px solid currentColor">Save &amp; preview Bereishis 1:1</button></div>
 </form>
 {% if preview %}<div class="section"><h2>Preview</h2><audio controls src="{{ preview }}" style="width:100%"></audio></div>{% endif %}
 <div class="section"><h2>Engines</h2>
 {% for k, e in engines.items() %}<p class="small"><b>{{ e.label }}</b> – {{ 'ready' if e.ready else 'not connected' }}{% if e.env %} <span class="muted">({{ e.env|join(', ') }})</span>{% endif %}</p>{% endfor %}
 <p class="small muted">No engine can sing trop; for trop use a recorded baal koreh (or the PocketTorah recording).</p></div>
+<div class="section" id="builds"><h2>Audio builds</h2>
+<p class="small muted">Every build folder appears in the player's Voice menu on its own. The licensed clone (static/audio_clone) becomes the default reader as soon as it exists.</p>
+<table class="tbl"><tr><th>Voice set</th><th>Aliyos</th><th>Storage</th></tr>
+{% for v in sets %}<tr><td>{{ v.label }} <span class="muted small">{{ v.id }}</span></td><td>{{ v.count }} / {{ total }}</td><td class="small">{{ 'Permanent (external)' if v.base_url else 'On server' }}</td></tr>{% endfor %}
+{% if not has_clone %}<tr><td>Licensed reader clone <span class="muted small">audio_clone</span></td><td>0 / {{ total }}</td><td class="small muted">Not built</td></tr>{% endif %}</table>
+{% if build %}<p class="small"><b>Last build:</b> {{ build.kind }}, aliyos {{ build['from'] }}–{{ build['to'] }} – {{ build.status }}</p>
+{% if build.log %}<pre class="small" style="white-space:pre-wrap;max-height:220px;overflow:auto">{{ build.log|join('\n') }}</pre>{% endif %}
+{% if build.status == 'running' %}<form method="post" action="{{ url_for('admin_voice_build') }}"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="btn" name="action" value="cancel" style="background:transparent;color:inherit;border:1px solid currentColor">Stop build</button></form>{% endif %}{% endif %}
+<form method="post" action="{{ url_for('admin_voice_build') }}"><input type="hidden" name="csrf" value="{{ csrf }}">
+  <div style="display:flex;gap:10px"><div style="flex:1"><label>From aliyah #</label><input name="from" value="0" inputmode="numeric"></div><div style="flex:1"><label>To aliyah #</label><input name="to" value="{{ total - 1 }}" inputmode="numeric"></div></div>
+  <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:14px">
+    <button class="btn" name="action" value="rebuild">Rebuild computer voice with these settings</button>
+    <button class="btn" name="action" value="clone_estimate" style="background:transparent;color:inherit;border:1px solid currentColor">Estimate clone cost</button>
+    <button class="btn" name="action" value="clone_rehearsal" style="background:transparent;color:inherit;border:1px solid currentColor">Free clone rehearsal</button></div>
+  {% if clone_est %}<p class="small">{{ clone_est }}</p>{% endif %}
+  <label>Paid clone build {{ '' if clone_ready else '– add ELEVENLABS_API_KEY and ELEVENLABS_VOICE_ID first' }}</label>
+  <input name="confirm" placeholder='Type "I accept the cost"' {{ '' if clone_ready else 'disabled' }}>
+  <button class="btn" name="action" value="clone_build" style="margin-top:10px" {{ '' if clone_ready else 'disabled' }}>Build the clone</button>
+</form>
+<p class="small muted">Builds made here live on the server's disk, which Render's free plan wipes on every restart. To keep a build, run it on a computer and publish it: <code>python publish_audio.py audio_clone</code> uploads the mp3s to a free GitHub Release and the site streams them from there.</p></div>
 {% endblock %}

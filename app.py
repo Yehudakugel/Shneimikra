@@ -3,7 +3,7 @@ from zoneinfo import ZoneInfo
 from flask import Flask, g, render_template, request, redirect, url_for, session, flash, abort, jsonify
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.middleware.proxy_fix import ProxyFix
-import config, plan, rewards, subprocess, hmac, hashlib, base64
+import config, plan, rewards, subprocess, hmac, hashlib, base64, sys
 from itsdangerous import URLSafeTimedSerializer, BadSignature
 
 BASE = plan.BASE
@@ -126,37 +126,47 @@ def active_announced_draw():
     n = iso(now_utc())
     return db().execute("SELECT * FROM draws WHERE status='open' AND announced=1 AND starts_at<=? AND ends_at>=? ORDER BY ends_at LIMIT 1", (n, n)).fetchone()
 _VS_CACHE = {"t": 0, "v": []}
-def voice_sets():
-    """Registry of audio builds: every static/audio*/ folder with a voice.json manifest ({"label", "priority"}) or timing files.
+AUDIO_TOTAL = plan.TOTAL
+def _manifest(d):
+    mp = os.path.join(BASE, "static", d, "voice.json")
+    try: return json.load(open(mp)) if os.path.exists(mp) else {}
+    except Exception: return {}
+def voice_sets(fresh=False):
+    """Registry of audio builds: every static/audio*/ folder with a voice.json manifest or timing files.
+    voice.json: {"label", "priority", "base_url"?}. base_url = permanent external storage for the mp3s
+    (e.g. a GitHub Release: https://github.com/<owner>/<repo>/releases/download/<tag>/), timing JSONs stay in the repo.
     A new voice model (e.g. static/audio_clone/ from gen_full_clone.py) appears automatically - no code change."""
     import time
-    if time.time() - _VS_CACHE["t"] < 30: return _VS_CACHE["v"]
+    if not fresh and time.time() - _VS_CACHE["t"] < 30: return _VS_CACHE["v"]
     out = []
     sd = os.path.join(BASE, "static")
     for d in sorted(os.listdir(sd)):
         full = os.path.join(sd, d)
         if not (d.startswith("audio") and os.path.isdir(full)): continue
-        man = {}
-        mp = os.path.join(full, "voice.json")
-        if os.path.exists(mp):
-            try: man = json.load(open(mp))
-            except Exception: man = {}
-        if not man and not any(f.endswith(".json") for f in os.listdir(full)): continue
+        man = _manifest(d)
+        jsons = [f for f in os.listdir(full) if f.endswith(".json") and f[:-5].isdigit()]
+        if not man and not jsons: continue
         out.append({"id": d, "label": man.get("label") or d.replace("audio_", "").replace("_", " ").title(),
-                    "priority": int(man.get("priority", 100 if d == "audio_clone" else 20))})
+                    "priority": int(man.get("priority", 100 if d == "audio_clone" else 20)), "base_url": man.get("base_url", ""),
+                    "count": sum(1 for f in jsons if _has(d, int(f[:-5]), man.get("base_url")))})
     out.sort(key=lambda v: -v["priority"]); _VS_CACHE.update(t=time.time(), v=out)
     return out
-def _has(d, idx):
+def _has(d, idx, base_url=None):
     p = os.path.join(BASE, "static", d, f"{idx}.json")
-    return os.path.exists(p) and os.path.exists(p[:-5] + ".mp3")
+    if not os.path.exists(p): return False
+    return bool(base_url if base_url is not None else _manifest(d).get("base_url")) or os.path.exists(p[:-5] + ".mp3")
 def audio_sets_for(idx):
-    """Voice sets that have this portion, best first. The admin 'Pesukim audio' = tts pushes PocketTorah below the computer voice."""
-    sets = [v for v in voice_sets() if _has(v["id"], idx)]
-    if hebrew_audio() != "pockettorah": sets.sort(key=lambda v: v["id"] == "audio_pt")
+    """Voice sets that have this portion, best first. Admin 'Pesukim audio': clone > PocketTorah > computer voice by priority;
+    'tts' pushes PocketTorah below the computer voice; 'clone' forces the clone first when it has this portion."""
+    sets = [v for v in voice_sets() if _has(v["id"], idx, v["base_url"])]
+    src = hebrew_audio()
+    if src == "tts": sets.sort(key=lambda v: v["id"] == "audio_pt")
+    elif src == "pockettorah": sets.sort(key=lambda v: v["id"] != "audio_pt" and v["id"] != "audio_clone")
+    if src == "clone" or any(v["id"] == "audio_clone" for v in sets): sets.sort(key=lambda v: v["id"] != "audio_clone")
     return sets
 def audio_meta(idx, prefer=None):
     """Timing map for a portion from the preferred voice set if it has this portion, else the best available.
-    meta["dir"] tells the player where the mp3 is."""
+    meta["src"] is the mp3 URL (served locally or proxied from permanent external storage)."""
     sets = audio_sets_for(idx)
     if prefer: sets.sort(key=lambda v: v["id"] != prefer)
     for v in sets:
@@ -164,8 +174,55 @@ def audio_meta(idx, prefer=None):
         try: m = json.load(open(p))
         except Exception: continue
         m["dir"] = v["id"]; m["voice_label"] = v["label"]
+        m["src"] = url_for("audio_media", d=v["id"], idx=idx) + "?v=" + str(m.get("version", 1))
         return m
     return None
+@app.route("/media/<d>/<int:idx>.mp3")
+def audio_media(d, idx):
+    """One mp3 for the player: the local file if the build is on disk, else a Range-aware proxy of the permanent copy
+    (base_url) so phones get audio/mpeg + 206 seeking whatever the host sends."""
+    from flask import send_from_directory, Response, stream_with_context
+    import urllib.request
+    if not (d.startswith("audio") and d.replace("_", "").isalnum()): abort(404)
+    folder = os.path.join(BASE, "static", d)
+    if os.path.exists(os.path.join(folder, f"{idx}.mp3")):
+        r = send_from_directory(folder, f"{idx}.mp3", mimetype="audio/mpeg", conditional=True, max_age=86400)
+        r.headers["Accept-Ranges"] = "bytes"; return r
+    base = _manifest(d).get("base_url")
+    if not base: abort(404)
+    req = urllib.request.Request(base.rstrip("/") + f"/{idx}.mp3", headers={"User-Agent": "schneimaker-kp"})
+    if request.headers.get("Range"): req.add_header("Range", request.headers["Range"])
+    try: up = urllib.request.urlopen(req, timeout=20)
+    except urllib.error.HTTPError as e:
+        if e.code == 416: return Response(status=416)
+        abort(404)
+    except Exception: abort(502)
+    hdr = {"Content-Type": "audio/mpeg", "Accept-Ranges": "bytes", "Cache-Control": "public, max-age=86400"}
+    rng = request.headers.get("Range", ""); import re as _re; mr = _re.match(r"bytes=(\d+)-(\d*)$", rng)
+    if up.status == 200 and mr and up.headers.get("Content-Length"):   # host ignored Range: cut it here so phones can still seek
+        total = int(up.headers["Content-Length"]); lo = int(mr.group(1)); hi = min(int(mr.group(2) or total - 1), total - 1)
+        if lo >= total: up.close(); return Response(status=416, headers={"Content-Range": f"bytes */{total}"})
+        def part():
+            try:
+                left = lo
+                while left > 0: left -= len(up.read(min(65536, left)) or b"x" * left)
+                need = hi - lo + 1
+                while need > 0:
+                    b = up.read(min(65536, need))
+                    if not b: break
+                    need -= len(b); yield b
+            finally: up.close()
+        return Response(stream_with_context(part()), status=206, headers={**hdr, "Content-Length": str(hi - lo + 1), "Content-Range": f"bytes {lo}-{hi}/{total}"})
+    for k in ("Content-Length", "Content-Range"):
+        if up.headers.get(k): hdr[k] = up.headers[k]
+    def gen():
+        try:
+            while True:
+                b = up.read(65536)
+                if not b: break
+                yield b
+        finally: up.close()
+    return Response(stream_with_context(gen()), status=up.status, headers=hdr)
 
 # ---------- public pages ----------
 @app.route("/healthz")
@@ -457,7 +514,7 @@ def admin_voice():
         try: f_speed = str(min(1.5, max(0.6, float(f.get("voice_speed", "1")))))
         except ValueError: f_speed = "1.0"
         vals = {k: f.get(k, VOICE_DEFAULTS[k]).strip()[:80] for k in VOICE_DEFAULTS}; vals["voice_speed"] = f_speed
-        if vals["voice_pesukim_source"] not in ("pockettorah", "tts"): vals["voice_pesukim_source"] = "pockettorah"
+        if vals["voice_pesukim_source"] not in ("pockettorah", "tts", "clone"): vals["voice_pesukim_source"] = "pockettorah"
         for k, v in vals.items():
             db().execute("INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (k, v))
         db().commit()
@@ -479,13 +536,83 @@ def admin_voice():
     h = session.get("voice_preview")
     if h and os.path.exists(os.path.join(BASE, "data", "voice_preview", h + ".mp3")): preview = url_for("admin_voice_preview", h=h)
     return render_template("admin_voice.html", engines=voice_engine.status(), styles=havara.STYLES, contents=VOICE_CONTENT,
-                           cur={k: vsetting(k) for k in VOICE_DEFAULTS}, preview=preview)
+                           cur={k: vsetting(k) for k in VOICE_DEFAULTS}, preview=preview, sets=voice_sets(fresh=True), total=plan.TOTAL,
+                           build=build_state(), clone_ready=clone_ready(), clone_est=session.get("clone_est"),
+                           has_clone=any(v["id"] == "audio_clone" for v in voice_sets()))
 @app.route("/admin/voice/preview/<h>.mp3")
 @admin_required
 def admin_voice_preview(h):
     from flask import send_from_directory
     if not h.isalnum(): abort(404)
     return send_from_directory(os.path.join(BASE, "data", "voice_preview"), h + ".mp3", mimetype="audio/mpeg")
+# ---------- admin: audio builds (rebuild with the Voice settings, clone batch, status) ----------
+BUILD_STATE = os.path.join(BASE, "data", "audio_build.json"); BUILD_LOG = os.path.join(BASE, "data", "audio_build.log")
+def build_state():
+    try: st = json.load(open(BUILD_STATE))
+    except Exception: return None
+    if st.get("status") == "running":
+        try: os.kill(st["pid"], 0); alive = subprocess.run(["ps", "-o", "stat=", "-p", str(st["pid"])], capture_output=True, text=True).stdout.strip()[:1] not in ("Z", "")
+        except Exception: alive = False
+        if not alive: st["status"] = "finished"; json.dump(st, open(BUILD_STATE, "w"))
+    try: st["log"] = open(BUILD_LOG).read().splitlines()[-12:]
+    except Exception: st["log"] = []
+    return st
+def clone_ready():
+    return bool(os.environ.get("ELEVENLABS_API_KEY") and os.environ.get("ELEVENLABS_VOICE_ID"))
+def clone_estimate(a, b):
+    r = subprocess.run([sys.executable, os.path.join(BASE, "gen_full_clone.py"), str(a), str(b), "--dry-run"], capture_output=True, text=True, cwd=BASE, timeout=120)
+    return (r.stdout.strip().splitlines() or ["(no output)"])[0]
+def start_build(cmd, env, info):
+    st = build_state()
+    if st and st.get("status") == "running": raise RuntimeError("A build is already running.")
+    log = open(BUILD_LOG, "w")
+    pr = subprocess.Popen(cmd, cwd=BASE, env={**os.environ, **env}, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
+    json.dump({**info, "pid": pr.pid, "status": "running", "started": iso(now_utc())}, open(BUILD_STATE, "w"))
+@app.route("/admin/voice/build", methods=["POST"])
+@admin_required
+def admin_voice_build():
+    import signal
+    f = request.form; act = f.get("action")
+    try: a, b = max(0, int(f.get("from", 0))), min(plan.TOTAL - 1, int(f.get("to", 0)))
+    except ValueError: a, b = 0, 0
+    if b < a: a, b = b, a
+    try:
+        if act == "rebuild":
+            # computer-voice rebuild with the saved Voice settings (havara, voice, speed) -> static/audio_rebuild (free engine)
+            if vsetting("voice_engine") != "edge": raise RuntimeError("Rebuild runs the free computer voice; for a paid engine or the clone use the clone build below.")
+            out = os.path.join(BASE, "static", "audio_rebuild"); os.makedirs(out, exist_ok=True)
+            for i in range(a, b + 1):
+                for ext in ("mp3", "json"):
+                    try: os.remove(os.path.join(out, f"{i}.{ext}"))
+                    except FileNotFoundError: pass
+            sp = float(vsetting("voice_speed") or 1); rate = f"{round((sp - 1) * 100):+d}%"
+            json.dump({"label": f"Computer voice ({havara_label(vsetting('voice_havara'))}, rebuilt)", "priority": 15}, open(os.path.join(out, "voice.json"), "w"))
+            start_build([sys.executable, "gen_audio.py", str(a), str(b)], {"AUDIO_OUT": out, "HAVARA": vsetting("voice_havara"), "TTS_RATE": rate, "TTS_VOICE": vsetting("voice_he")},
+                        {"kind": "rebuild", "set": "audio_rebuild", "from": a, "to": b})
+            flash(f"Rebuilding aliyos {a}-{b} with the saved Voice settings. Progress below.", "ok")
+        elif act == "clone_estimate":
+            session["clone_est"] = clone_estimate(a, b); flash("Cost estimate below. Nothing was generated.", "ok")
+        elif act == "clone_rehearsal":
+            start_build([sys.executable, "gen_full_clone.py", str(a), str(b)], {"CLONE_ENGINE": "edge"}, {"kind": "clone rehearsal (free)", "set": "audio_clone_rehearsal", "from": a, "to": b})
+            flash("Free rehearsal of the clone pipeline started (computer voice, no cost).", "ok")
+        elif act == "clone_build":
+            if not clone_ready(): raise RuntimeError("Add ELEVENLABS_API_KEY and ELEVENLABS_VOICE_ID on the server first.")
+            if f.get("confirm", "").strip().lower() != "i accept the cost": raise RuntimeError('Type "I accept the cost" to start the paid build.')
+            start_build([sys.executable, "gen_full_clone.py", str(a), str(b)], {}, {"kind": "clone (paid)", "set": "audio_clone", "from": a, "to": b})
+            flash("Clone build started.", "ok")
+        elif act == "cancel":
+            st = build_state()
+            if st and st.get("status") == "running":
+                try: os.killpg(st["pid"], signal.SIGTERM)
+                except Exception: pass
+                st["status"] = "cancelled"; st.pop("log", None); json.dump(st, open(BUILD_STATE, "w")); flash("Build stopped. Re-running resumes from the cache.", "ok")
+        _VS_CACHE["t"] = 0
+    except RuntimeError as e:
+        flash(str(e), "error")
+    return redirect(url_for("admin_voice") + "#builds")
+def havara_label(k):
+    import havara
+    return havara.STYLES.get(k, (k,))[0]
 def hebrew_audio():
     try: return vsetting("voice_pesukim_source")
     except Exception: return config.HEBREW_AUDIO
@@ -539,6 +666,10 @@ def profile():
     return render_template("profile.html", st=st, cards=cards)
 
 # ---------- audio clips (one line = one segment) ----------
+def audio_source_path(d, idx):
+    """Local mp3 path, or the permanent external URL (ffmpeg reads http) when the build lives off-box."""
+    p = os.path.join(BASE, "static", d, f"{idx}.mp3")
+    return p if os.path.exists(p) else _manifest(d).get("base_url", "").rstrip("/") + f"/{idx}.mp3"
 @app.route("/audio/clip/<int:idx>/<int:seg>.mp3")
 def audio_clip(idx, seg):
     meta = audio_meta(idx)
@@ -550,7 +681,7 @@ def audio_clip(idx, seg):
     if not os.path.exists(out):
         sg = meta["segments"][seg]
         subprocess.run(["ffmpeg", "-v", "error", "-y", "-ss", str(sg["start"]), "-to", str(sg["end"] + 0.15), "-i",
-                        os.path.join(BASE, "static", meta["dir"], f"{idx}.mp3"), "-c:a", "libmp3lame", "-b:a", "48k", out + ".tmp.mp3"], check=True)
+                        audio_source_path(meta["dir"], idx), "-c:a", "libmp3lame", "-b:a", "48k", out + ".tmp.mp3"], check=True)
         os.replace(out + ".tmp.mp3", out)
     return app.send_static_file(f"audio/clips/{name}")
 
@@ -608,7 +739,7 @@ def voice_menu_choice():
     uid = call_uid(); t = request.values.get("t"); dg = request.values.get("Digits", "")
     i, _ = portion_intro(uid)
     if dg == "1":
-        return twiml(say("Say it along with the reader.") + f'<Play>{esc(absu("/static/%s/%d.mp3?v=%s" % (audio_meta(i)["dir"], i, audio_meta(i).get("version", 1))))}</Play>' +
+        return twiml(say("Say it along with the reader.") + f'<Play>{esc(absu(audio_meta(i)["src"]))}</Play>' +
                      f'<Gather input="dtmf" numDigits="1" timeout="10" action="{vurl("voice_after_full", t=t)}" method="POST">' +
                      say("You reached the end of the portion. To mark it done, press 9. To hear it again, press 2. For the main menu, press 0.") + "</Gather>" + say("Goodbye!") + "<Hangup/>")
     if dg == "2": return twiml(f'<Redirect method="POST">{vurl("voice_line", t=t, i=0, help=1)}</Redirect>')
