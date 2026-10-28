@@ -13,73 +13,78 @@
 <div class="flash" role="status">{{ plan.PORTIONS[just_done].parsha }} · {{ plan.PORTIONS[just_done].aliyah_en }} is complete. Your next portion is below.</div>
 {% endif %}
 {% if active_draw %}
-<div class="notice on">{{ icon('gift', 20) }}<div><b>{{ active_draw.title }}</b> is open until {{ active_draw.ends_at|local('%A, %b %-d') }}. Each portion you finish is an entry{% if st.rw.mult > 1 %}, multiplied ×{{ st.rw.mult }} by your streak{% endif %}. Prize: {{ active_draw.prize }}.</div></div>
+<div class="notice on"><div><b>{{ active_draw.title }}</b> is open until {{ active_draw.ends_at|local('%A, %b %-d') }}. Each portion you finish is an entry{% if st.rw.mult > 1 %}, multiplied ×{{ st.rw.mult }} by your streak{% endif %}. Prize: {{ active_draw.prize }}.</div></div>
 {% else %}
-<div class="notice">{{ icon('gift', 20) }}<div>{{ setting('teaser') }}{% if st.rw.mult > 1 %} Your streak multiplies entries <b>×{{ st.rw.mult }}</b>.{% endif %}</div></div>
+<div class="notice rd-notice"><div>{{ setting('teaser') }}{% if st.rw.mult > 1 %} Your streak multiplies entries <b>×{{ st.rw.mult }}</b>.{% endif %}</div></div>
 {% endif %}
 
-<div class="stats">
-  <div class="stat"><b>{{ st.rw.streak_weeks }}</b><span>week streak</span></div>
-  <div class="stat"><b>{{ st.rw.this_week }}<span style="font-size:1rem;color:var(--ink3)">/7</span></b><span>this week</span></div>
-  <div class="stat"><b>{{ st.done }}</b><span>of {{ st.total }} portions</span></div>
-</div>
-<div class="bar" aria-label="Torah progress {{ st.pct }}%"><i style="width:{{ [st.pct,0.6]|max }}%"></i></div>
-<p class="small muted" style="margin:0">{{ st.pct }}% of the Torah · {% if st.on_track %}On track to finish by {{ plan.END_DATE.strftime('%B %Y') }}{% else %}{{ st.behind }} behind the calendar{% endif %}{% if st.next_level %} · Next: {{ st.next_level.title }}, {{ st.next_level.count - st.done }} to go{% endif %}</p>
-{% if unrevealed and not card %}<button class="btn quiet" style="margin-top:14px" onclick="openCard({{ unrevealed[0].id }})">{{ icon('gift', 20) }} {{ unrevealed|length }} card{{ 's' if unrevealed|length > 1 }} waiting to be revealed</button>{% endif %}
-
-<div class="ptitle">
+<header class="rd-head">
   <div class="eyebrow">{{ 'Today' if is_current else ('Completed' if is_done else 'Portion') }} · {{ p.day_en }}</div>
-  <div class="he" style="margin-top:10px">פרשת {{ p.parsha_he }} · {{ p.aliyah_he }}</div>
-  <h1>Parshas {{ p.parsha }} – {{ p.aliyah_en }}</h1>
-  <div class="small muted">{{ p.book_en }} · {{ p.ref }} · {{ p.verses|length }} pesukim</div>
-</div>
+  <div class="rd-he">פרשת {{ p.parsha_he }} <span>·</span> {{ p.aliyah_he }}</div>
+  <h1>Parshas {{ p.parsha }}, {{ p.aliyah_en }}</h1>
+  <div class="rd-meta">{{ p.book_en }} {{ p.ref.split(' ',1)[1] if ' ' in p.ref else p.ref }} · {{ p.verses|length }} pesukim</div>
+</header>
 
-<div class="modes" role="group" aria-label="Audio mode">
-  <button data-mode="tap">{{ icon('tap') }}Tap a line</button>
-  <button data-mode="auto">{{ icon('auto') }}Auto-read</button>
-  <button data-mode="listen">{{ icon('listen') }}Listen only</button>
+<div class="stats rd-stats" aria-label="Your progress">
+  <span><b>{{ st.rw.streak_weeks }}</b> week streak</span><span><b>{{ st.rw.this_week }}</b>/7 this week</span><span><b>{{ st.done }}</b> of {{ st.total }}</span>
+</div>
+<div class="bar rd-bar" aria-label="Torah progress {{ st.pct }}%"><i style="width:{{ [st.pct,0.6]|max }}%"></i></div>
+<p class="rd-sub">{{ st.pct }}% of the Torah · {% if st.on_track %}on track for {{ plan.END_DATE.strftime('%B %Y') }}{% else %}{{ st.behind }} behind the calendar{% endif %}</p>
+{% if unrevealed and not card %}<button class="rd-link" onclick="openCard({{ unrevealed[0].id }})">{{ unrevealed|length }} card{{ 's' if unrevealed|length > 1 }} waiting to be revealed</button>{% endif %}
+
+<div class="modes rd-modes" role="group" aria-label="Audio mode">
+  <button data-mode="tap">Tap a line</button>
+  <button data-mode="auto">Read along</button>
+  <button data-mode="listen">Listen</button>
 </div>
 <p id="modehelp"></p>
-<div class="pcontrols" id="pcontrols" aria-label="Reading options">
-  <label class="pc"><span>Speed</span><select id="opt-speed">{% for r in [0.75, 0.9, 1.0, 1.1, 1.25, 1.5] %}<option value="{{ r }}">{{ r }}×</option>{% endfor %}</select></label>
-  <label class="pc"><span>Voice</span><select id="opt-voice">{% for v in voice_sets %}<option value="{{ v.id }}" {{ 'selected' if audio and audio.dir == v.id }}>{{ v.label }}</option>{% endfor %}{% if not voice_sets %}<option value="">Device voice</option>{% endif %}</select></label>
-  <label class="pc pc-wide"><span>Order</span><select id="opt-order">
-    <option value="ppo">Pasuk, pasuk, Targum</option>
-    <option value="po">Pasuk once, then Targum</option>
-    <option value="aao">Whole aliyah twice, then all Targum</option>
-    <option value="ao">Whole aliyah once, then all Targum</option>
-    <option value="p">Pesukim only</option></select></label>
-</div>
 
-<div class="player" id="player">
-  <div class="row">
-    <span style="width:48px"></span>
-    <button id="prev" aria-label="Previous pasuk">{{ icon('prev') }}</button>
-    <button id="play" class="play" aria-label="Play">{{ icon('play', 24) }}</button>
-    <button id="next" aria-label="Next pasuk">{{ icon('next') }}</button>
-    <span style="width:48px"></span>
-  </div>
-  <input type="range" id="seek" min="0" max="1000" value="0" aria-label="Position">
-  <div class="note">{% if audio and audio.credit %}<a href="{{ audio.credit.url }}" target="_blank" rel="noopener">{{ audio.credit.text }}</a> · Targum: computer voice (placeholder){% elif audio %}{{ audio.voice_label or 'Computer voice' }}{% else %}Audio in preparation – using your device's Hebrew voice{% endif %}</div>
-</div>
-
-<div id="listen" class="listen" hidden>
-  <div class="ptitle" style="padding:0"><div class="he">פרשת {{ p.parsha_he }} · {{ p.aliyah_he }}</div></div>
-  <button class="bigplay" id="bigplay" aria-label="Play or pause">{{ icon('play', 48) }}</button>
+<div id="listen" class="listen rd-listen" hidden>
+  <button class="bigplay" id="bigplay" aria-label="Play or pause">{{ icon('play', 44) }}</button>
   <div class="now" id="listen-now">Pasuk 1 of {{ p.verses|length }}</div>
-  <div class="bar" style="max-width:360px;margin:12px auto"><i id="listen-bar" style="width:0%"></i></div>
+  <div class="bar" style="max-width:300px;margin:14px auto 8px"><i id="listen-bar" style="width:0%"></i></div>
   <div class="small muted" id="listen-time" style="font-variant-numeric:tabular-nums">0:00</div>
+  <button class="rd-link" onclick="openSheet()">Speed, voice and order</button>
 </div>
 
-<div id="text">
+<div id="text" class="rd-text">
 {% for v in p.verses %}{% set vi = loop.index0 %}
-<div class="verse" id="v-{{ vi }}">
+<section class="verse" id="v-{{ vi }}">
   <div class="num">{{ v.label }}</div>
-  <div class="line he" data-v="{{ vi }}" data-kind="mikra1" id="l-{{ vi }}-mikra1"><span class="tag">מקרא</span><span class="t">{{ v.heb }}</span></div>
-  <div class="line he" data-v="{{ vi }}" data-kind="mikra2" id="l-{{ vi }}-mikra2"><span class="tag">מקרא</span><span class="t">{{ v.heb }}</span></div>
+  <div class="line he" data-v="{{ vi }}" data-kind="mikra1" id="l-{{ vi }}-mikra1"><span class="t">{{ v.heb }}</span></div>
+  <div class="line he again" data-v="{{ vi }}" data-kind="mikra2" id="l-{{ vi }}-mikra2"><span class="t">{{ v.heb }}</span></div>
   <div class="line he targum" data-v="{{ vi }}" data-kind="targum" id="l-{{ vi }}-targum"><span class="tag">תרגום</span><span class="t">{{ v.onk }}</span></div>
-</div>
+</section>
 {% endfor %}
+</div>
+
+<div class="player rd-bar-fixed" id="player">
+  <input type="range" id="seek" min="0" max="1000" value="0" aria-label="Position">
+  <div class="row">
+    <div class="rd-now" id="bar-now">Pasuk 1<small>Mikra</small></div>
+    <div class="rd-ctl">
+      <button id="prev" aria-label="Previous pasuk">{{ icon('prev') }}</button>
+      <button id="play" class="play" aria-label="Play">{{ icon('play', 24) }}</button>
+      <button id="next" aria-label="Next pasuk">{{ icon('next') }}</button>
+    </div>
+    <div class="rd-right"><button id="opensheet" class="rd-gear" aria-label="Reading settings" onclick="openSheet()"><span id="bar-speed">1×</span></button></div>
+  </div>
+</div>
+
+<div class="sheet-bg" id="sheet" hidden onclick="if(event.target===this)closeSheet()">
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-h">
+    <div class="grab"></div>
+    <div class="sheet-top"><h2 id="sheet-h">Reading settings</h2><button class="rd-link" onclick="closeSheet()">Done</button></div>
+    <label class="pc"><span>Speed</span><select id="opt-speed">{% for r in [0.75, 0.9, 1.0, 1.1, 1.25, 1.5] %}<option value="{{ r }}">{{ r }}×</option>{% endfor %}</select></label>
+    <label class="pc"><span>Voice</span><select id="opt-voice">{% for v in voice_sets %}<option value="{{ v.id }}" {{ 'selected' if audio and audio.dir == v.id }}>{{ v.label }}</option>{% endfor %}{% if not voice_sets %}<option value="">Device voice</option>{% endif %}</select></label>
+    <label class="pc"><span>Order</span><select id="opt-order">
+      <option value="ppo">Pasuk twice, then Targum</option>
+      <option value="po">Pasuk once, then Targum</option>
+      <option value="aao">Aliyah twice, then Targum</option>
+      <option value="ao">Aliyah once, then Targum</option>
+      <option value="p">Pesukim only</option></select></label>
+    <p class="note">{% if audio and audio.credit %}<a href="{{ audio.credit.url }}" target="_blank" rel="noopener">{{ audio.credit.text }}</a> · Targum: computer voice (placeholder){% elif audio %}{{ audio.voice_label or 'Computer voice' }}{% else %}Audio in preparation – using your device's Hebrew voice{% endif %}</p>
+  </div>
 </div>
 
 <div class="chazal"><div class="he">{{ chazal.he }}</div><div class="en">{{ chazal.en }}</div>
@@ -89,8 +94,8 @@
 <form method="post" action="{{ url_for('complete', idx=p.idx) }}" class="done-box" id="doneform"><input type="hidden" name="csrf" value="{{ csrf }}">
   <h2>Finished today's portion?</h2>
   <label class="check"><input type="checkbox" required> I read each pasuk twice and the Targum once.</label>
-  <button class="btn" name="source" value="app">{{ icon('check', 20) }} I finished today's portion</button>
-  <button class="btn secondary" name="source" value="sefer">{{ icon('book', 20) }} I learned it from my own Chumash</button>
+  <button class="btn" name="source" value="app">I finished today's portion</button>
+  <button class="btn secondary" name="source" value="sefer">I learned it from my own Chumash</button>
   <p class="small muted">Learning from a sefer counts the same toward your streak and entries.</p>
 </form>
 {% elif is_done %}
@@ -127,9 +132,9 @@
 </div>
 <script>
 const TOUR = [
-  [".stats", "Your week streak, this week's portions, and your progress through the Torah."],
+  [".rd-stats", "Your week streak, this week's portions, and your progress through the Torah."],
   [".modes", "Choose how to learn: tap a line to hear only that line, auto-read straight through, or listen only. Your choice is remembered."],
-  ["#player", "The player: play and pause, move a pasuk back or forward, and change speed. The voice is a placeholder until a reader is recorded."],
+  ["#player", "The player: play and pause, move a pasuk back or forward. Tap the speed on the right for speed, voice and reading order."],
   ["#text .verse", "Each pasuk appears twice, then Onkelos. The line being read is highlighted and scrolls into view."],
   [".chazal", "Each day, a line from Chazal or the poskim on Shnayim Mikra, with its exact source."],
   ["#doneform", "When you finish, mark it done – or note that you learned from your own Chumash. A small surprise card follows, and the next portion opens."],
@@ -190,7 +195,7 @@ function highlight(i) {
   if (i < 0) return;
   const s = SEGS[i], el = document.getElementById(`l-${s.v}-${s.kind}`);
   if (el) { el.classList.add("on"); if (mode != "listen") el.scrollIntoView({ behavior: "smooth", block: "center" }); }
-  $("#listen-now").textContent = `Pasuk ${s.v + 1} of ${NV} · ${s.kind == "targum" ? "Targum" : "Mikra"}`;
+  $("#listen-now").textContent = `Pasuk ${s.v + 1} of ${NV} · ${s.kind == "targum" ? "Targum" : "Mikra"}`; $("#bar-now").innerHTML = `Pasuk ${s.v + 1}<small>${s.kind == "targum" ? "Targum" : "Mikra"}</small>`;
 }
 function fmt(t) { t = Math.floor(t); return Math.floor(t / 60) + ":" + String(t % 60).padStart(2, "0"); }
 const ICO_PLAY = (s) => `<svg class="ico" width="${s}" height="${s}" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5v13l10.5-6.5z" fill="currentColor"/></svg>`;
@@ -290,12 +295,16 @@ document.querySelectorAll(".line").forEach(el => el.onclick = () => {
   if (mode == "tap") playLine(i); else playFrom(qposOf(i));
 });
 function applyOrderVisibility() { document.querySelectorAll(".line").forEach(el => el.classList.toggle("skip", !Q.includes(segIdx(+el.dataset.v, el.dataset.kind)))); }
-$("#opt-speed").value = String(rate); if ($("#opt-speed").value === "") $("#opt-speed").value = "1";
-$("#opt-speed").onchange = e => { rate = parseFloat(e.target.value); applyRate(); savePref("speed", rate); };
+{ const o = [...$("#opt-speed").options].find(x => parseFloat(x.value) == rate) || [...$("#opt-speed").options].find(x => parseFloat(x.value) == 1); $("#opt-speed").value = o.value; }
+function showSpeed() { $("#bar-speed").textContent = rate + "×"; } showSpeed();
+$("#opt-speed").onchange = e => { rate = parseFloat(e.target.value); showSpeed(); applyRate(); savePref("speed", rate); };
 $("#opt-order").value = order;
 $("#opt-order").onchange = e => { const wasPlaying = playing; const curSeg = cur; pause(); order = e.target.value; Q = buildQueue(order); retotal(); applyOrderVisibility(); savePref("order", order);
   qpos = curSeg >= 0 ? qposOf(curSeg) : 0; progress(); if (wasPlaying) playFrom(qpos); };
 $("#opt-voice").onchange = e => { pause(); savePref("voice", e.target.value); setTimeout(() => location.reload(), 250); };
+function openSheet() { $("#sheet").hidden = false; requestAnimationFrame(() => $("#sheet").classList.add("open")); }
+function closeSheet(now) { $("#sheet").classList.remove("open"); if (now === true) $("#sheet").hidden = true; else setTimeout(() => $("#sheet").hidden = true, 220); }
+document.addEventListener("keydown", e => { if (e.key == "Escape" && !$("#sheet").hidden) closeSheet(); });
 applyOrderVisibility(); progress();
 window.PLAYER = { get Q() { return Q; }, get qpos() { return qpos; }, get rate() { return rate; } };
 setMode(mode, false);
