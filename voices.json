@@ -1,0 +1,15 @@
+{
+ "voices": {
+  "polly-matthew": {"label": "Phone voice (Twilio Polly Matthew, free with the number)", "engine": "polly", "voice": "Polly.Matthew", "lang": "en"},
+  "edge-avri": {"label": "Computer voice Hebrew (Edge Avri, free)", "engine": "edge", "voice": "he-IL-AvriNeural", "lang": "he"},
+  "edge-andrew": {"label": "Computer voice English (Edge Andrew, free)", "engine": "edge", "voice": "en-US-AndrewNeural", "lang": "en"},
+  "baal-koreh": {"label": "Baal koreh clone (ElevenLabs PVC)", "engine": "elevenlabs", "voice_env": "ELEVENLABS_VOICE_ID", "lang": "he"},
+  "perlowitz": {"label": "Chaim Perlowitz clone (ElevenLabs PVC)", "engine": "elevenlabs", "voice_env": "ELEVENLABS_PERLOWITZ_VOICE_ID", "lang": "en"}
+ },
+ "uses": {
+  "reading":       {"label": "Reading (pesukim + Onkelos)", "default": "edge-avri", "preferred": "baal-koreh"},
+  "hotline":       {"label": "Phone hotline prompts", "default": "polly-matthew", "preferred": "perlowitz"},
+  "promo":         {"label": "Promo voiceover", "default": "edge-andrew", "preferred": "perlowitz"},
+  "announcements": {"label": "Announcements / WhatsApp voice notes", "default": "edge-andrew", "preferred": "perlowitz"}
+ }
+}

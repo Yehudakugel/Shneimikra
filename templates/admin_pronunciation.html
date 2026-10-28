@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block body %}
+<h1>Pronunciation</h1>
+{% include "_adminnav.html" %}
+<p class="small muted">Tell the reader exactly how to say a word. Your spelling is used before the havara rules and in every voice (computer voice and the clone). Type the word as it appears (with or without nekudos) and write how it should sound in Hebrew letters, for example יִשׂוֹכָר. {{ 'Changes are saved to GitHub automatically.' if github else 'This server can’t save to GitHub yet, so download the list after editing.' }}</p>
+{% if preview %}<div class="section"><h2>Preview</h2><audio controls autoplay src="{{ preview[0] }}" style="width:100%"></audio><p class="small muted" dir="rtl">{{ preview[1] }}</p></div>{% endif %}
+<div class="section"><h2>Add a word</h2>
+<form method="post"><input type="hidden" name="csrf" value="{{ csrf }}">
+  <label>Word in the text</label><input name="word" dir="rtl" placeholder="יִשָּׂשכָר">
+  <label>Say it like</label><input name="say" dir="rtl" placeholder="יִשׂוֹכָר">
+  <label>Where</label><select name="scope"><option value="all">Pesukim and Onkelos</option><option value="pesukim">Pesukim only</option><option value="onkelos">Onkelos only</option></select>
+  <label>Note (optional)</label><input name="note">
+  <div style="display:flex;gap:10px;margin-top:16px"><button class="btn" name="action" value="add">Save word</button><button class="btn" name="action" value="preview_word" style="background:transparent;color:inherit;border:1px solid currentColor">Preview this word</button></div>
+</form></div>
+<div class="section"><h2>Your words ({{ words|length }})</h2>
+<table class="tbl"><tr><th>Word</th><th>Say</th><th>Where</th><th></th></tr>
+{% for e in words %}<tr><td dir="rtl">{{ e.word }}</td><td dir="rtl">{{ e.say }}</td><td class="small">{{ e.scope }}{% if e.note %}<br><span class="muted">{{ e.note }}</span>{% endif %}</td>
+<td><form method="post" style="display:inline"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="word" value="{{ e.say }}"><input type="hidden" name="scope" value="{{ e.scope }}"><button class="btn small" name="action" value="preview_word" style="background:transparent;color:inherit;border:1px solid currentColor">▶</button></form>
+<form method="post" style="display:inline"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="i" value="{{ loop.index0 }}"><button class="btn small" name="action" value="delete" style="background:transparent;color:inherit;border:1px solid currentColor">✕</button></form></td></tr>{% endfor %}
+</table>
+<p class="small"><a href="{{ url_for('admin_pronunciation_json') }}">Download pronunciation.json</a>{% if eleven %} · <form method="post" style="display:inline"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="btn small" name="action" value="eleven_sync" style="background:transparent;color:inherit;border:1px solid currentColor">Copy to ElevenLabs dictionary</button></form>{% endif %}</p></div>
+<div class="section" id="pasuk"><h2>Fix one pasuk</h2>
+<p class="small muted">Write exactly what the reader should say for one pasuk. Only that pasuk is made again.</p>
+<form method="post"><input type="hidden" name="csrf" value="{{ csrf }}">
+  <label>Pasuk</label><div style="display:flex;gap:10px"><input name="ref" value="{{ ref }}" placeholder="Genesis 1:1" style="flex:1"><button class="btn" name="action" value="load_pasuk" style="background:transparent;color:inherit;border:1px solid currentColor">Open</button></div>
+  {% if verse %}
+  <p dir="rtl" style="font-size:1.2em">{{ verse.heb }}</p><p dir="rtl" class="muted">{{ verse.onk }}</p>
+  <label>Say the pasuk like (blank = normal)</label><textarea name="heb" dir="rtl" rows="3">{{ ov.heb or '' }}</textarea>
+  <label>Say the Onkelos like (blank = normal)</label><textarea name="onk" dir="rtl" rows="3">{{ ov.onk or '' }}</textarea>
+  <label>Note</label><input name="note" value="{{ ov.note or '' }}">
+  <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:16px">
+    <button class="btn" name="action" value="save_pasuk">Save</button>
+    <button class="btn" name="action" value="preview_pasuk" style="background:transparent;color:inherit;border:1px solid currentColor">Preview</button>
+    <button class="btn" name="action" value="regen_pasuk" style="background:transparent;color:inherit;border:1px solid currentColor">Make this pasuk again</button>
+    <button class="btn" name="action" value="clear_pasuk" style="background:transparent;color:inherit;border:1px solid currentColor">Remove fix</button></div>
+  {% endif %}
+</form>
+{% if overrides %}<p class="small">Fixed pesukim: {% for r in overrides %}{{ r }}{{ ', ' if not loop.last }}{% endfor %}</p>{% endif %}
+{% if build %}<p class="small muted">Last build: {{ build.kind }} – {{ build.status }}</p>{% endif %}
+</div>
+{% endblock %}

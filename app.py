@@ -538,7 +538,7 @@ def admin_voice():
     return render_template("admin_voice.html", engines=voice_engine.status(), styles=havara.STYLES, contents=VOICE_CONTENT,
                            cur={k: vsetting(k) for k in VOICE_DEFAULTS}, preview=preview, sets=voice_sets(fresh=True), total=plan.TOTAL,
                            build=build_state(), clone_ready=clone_ready(), clone_est=session.get("clone_est"),
-                           has_clone=any(v["id"] == "audio_clone" for v in voice_sets()))
+                           has_clone=any(v["id"] == "audio_clone" for v in voice_sets()), voice_uses=__import__("voices").table(setting_raw))
 @app.route("/admin/voice/preview/<h>.mp3")
 @admin_required
 def admin_voice_preview(h):
@@ -610,6 +610,104 @@ def admin_voice_build():
     except RuntimeError as e:
         flash(str(e), "error")
     return redirect(url_for("admin_voice") + "#builds")
+def setting_raw(k):
+    r = db().execute("SELECT value FROM settings WHERE key=?", (k,)).fetchone()
+    return r[0] if r else ""
+def set_setting(k, v):
+    db().execute("INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (k, v)); db().commit()
+@app.route("/admin/voices", methods=["POST"])
+@admin_required
+def admin_voices():
+    import voices
+    for u in voices.REG["uses"]:
+        v = request.form.get("use_" + u, "auto")
+        if v == "auto" or v in voices.REG["voices"]: set_setting("voiceuse_" + u, v)
+    flash("Voices per use saved.", "ok"); return redirect(url_for("admin_voice") + "#voices")
+# ---------- admin: pronunciation dictionary + per-pasuk overrides ----------
+def find_verse(ref):
+    """'Genesis 1:1' -> (portion idx, verse dict)"""
+    ref = " ".join(ref.split())
+    for p in plan.PORTIONS:
+        for v in p["verses"]:
+            if ref.lower() in (f"{p['book']} {v['c']}:{v['v']}".lower(), f"{p['book_en']} {v['c']}:{v['v']}".lower()): return p["idx"], v
+    return None, None
+def pron_preview(text, targum=False):
+    import gen_audio, voice_engine, voices
+    spoken = gen_audio.tts_text(text, targum)
+    k, v = voices.resolve("reading", setting_raw("voiceuse_reading"))
+    eng, vid = (v["engine"], voices.voice_id(v)) if v["engine"] != "polly" else ("edge", "he-IL-AvriNeural")
+    h = hashlib.sha1(f"{eng}|{vid}|{spoken}".encode()).hexdigest()[:12]
+    d = os.path.join(BASE, "data", "voice_preview"); os.makedirs(d, exist_ok=True)
+    if not os.path.exists(os.path.join(d, h + ".mp3")):
+        open(os.path.join(d, h + ".mp3"), "wb").write(voice_engine.synth(spoken, eng, vid, float(vsetting("voice_speed") or 1)))
+    return h, spoken
+@app.route("/admin/pronunciation", methods=["GET", "POST"])
+@admin_required
+def admin_pronunciation():
+    import pronunciation as pr
+    d = pr.load()
+    if request.method == "POST":
+        f = request.form; act = f.get("action"); changed = None
+        try:
+            if act == "add":
+                w, sayw = f.get("word", "").strip(), f.get("say", "").strip()
+                if not w or not sayw: raise RuntimeError("Fill in the word and how to say it.")
+                scope = f.get("scope") if f.get("scope") in ("all", "pesukim", "onkelos") else "all"
+                d["words"] = [e for e in d["words"] if not (pr.norm(e["word"]) == pr.norm(w) and e.get("scope", "all") == scope)]
+                d["words"].append({"word": w[:60], "say": sayw[:120], "note": f.get("note", "").strip()[:200], "scope": scope}); changed = f"Pronunciation: {w}"
+            elif act == "delete":
+                i = int(f.get("i", -1)); w = d["words"].pop(i)["word"]; changed = f"Remove pronunciation: {w}"
+            elif act == "preview_word":
+                h, spoken = pron_preview(f.get("say") or f.get("word", ""), f.get("scope") == "onkelos")
+                session["pron_preview"] = [h, spoken]; flash("Preview below.", "ok")
+            elif act in ("load_pasuk", "save_pasuk", "clear_pasuk", "preview_pasuk", "regen_pasuk"):
+                ref = f.get("ref", ""); idx, v = find_verse(ref)
+                if v is None: raise RuntimeError("Pasuk not found - write it like: Genesis 1:1")
+                session["pron_ref"] = ref
+                if act == "save_pasuk":
+                    d["overrides"][ref] = {"heb": f.get("heb", "").strip(), "onk": f.get("onk", "").strip(), "heb_src": v["heb"], "onk_src": v["onk"], "note": f.get("note", "").strip()[:200]}
+                    changed = f"Override {ref}"
+                elif act == "clear_pasuk":
+                    d["overrides"].pop(ref, None); changed = f"Clear override {ref}"
+                elif act == "preview_pasuk":
+                    h, spoken = pron_preview(v["heb"]); session["pron_preview"] = [h, spoken]; flash("Preview of the pasuk below.", "ok")
+                elif act == "regen_pasuk":
+                    import gen_audio
+                    sp = float(vsetting("voice_speed") or 1); rate = f"{round((sp - 1) * 100):+d}%"
+                    env = {"HAVARA": vsetting("voice_havara"), "TTS_RATE": rate, "TTS_VOICE": vsetting("voice_he")}
+                    out = os.path.join(BASE, "static", "audio_rebuild"); os.makedirs(out, exist_ok=True)
+                    code = ("import os,plan,gen_audio as g;p=plan.PORTIONS[%d];v=[x for x in p['verses'] if x['c']==%d and x['v']==%d][0]\n"
+                            "for k in ('heb','onk'):\n    f=g.key(p,v,k)\n    [os.remove(x) for x in (f,f+'.wb.json') if os.path.exists(x)]\n"
+                            "[os.remove(os.path.join(g.OUT,'%d.'+e)) for e in ('mp3','json') if os.path.exists(os.path.join(g.OUT,'%d.'+e))]\nprint('cleared pasuk cache')") % (idx, v["c"], v["v"], idx, idx)
+                    if not os.path.exists(os.path.join(out, "voice.json")):
+                        json.dump({"label": f"Computer voice ({havara_label(vsetting('voice_havara'))}, rebuilt)", "priority": 15}, open(os.path.join(out, "voice.json"), "w"))
+                    start_build(["sh", "-c", f'{sys.executable} -c "$0" && {sys.executable} gen_audio.py {idx} {idx}', code], {**env, "AUDIO_OUT": out},
+                                {"kind": f"regenerate {ref}", "set": "audio_rebuild", "from": idx, "to": idx})
+                    _VS_CACHE["t"] = 0
+                    flash(f"Regenerating {ref} only (the rest of aliyah #{idx} comes from the cache).", "ok")
+            elif act == "eleven_sync":
+                r = pr.elevenlabs_sync(); flash(f"ElevenLabs dictionary created: {r}", "ok")
+        except (RuntimeError, ValueError, IndexError) as e:
+            flash(str(e), "error")
+        except Exception as e:
+            flash(f"Failed: {e}", "error")
+        if changed:
+            pr.save(d)
+            try: where = pr.commit_to_github(changed)
+            except Exception as e: where = f"GitHub save failed ({e}) - download the JSON to keep it"
+            flash(f"Saved ({where}).", "ok")
+        return redirect(url_for("admin_pronunciation") + ("#pasuk" if act and "pasuk" in act else ""))
+    ref = session.get("pron_ref", ""); idx, v = find_verse(ref) if ref else (None, None)
+    o = d["overrides"].get(ref, {}) if ref else {}
+    pv = session.get("pron_preview")
+    return render_template("admin_pronunciation.html", words=d["words"], overrides=d["overrides"], ref=ref, verse=v, ov=o,
+                           preview=(url_for("admin_voice_preview", h=pv[0]), pv[1]) if pv and os.path.exists(os.path.join(BASE, "data", "voice_preview", pv[0] + ".mp3")) else None,
+                           github=bool(os.environ.get("GITHUB_TOKEN")), eleven=bool(os.environ.get("ELEVENLABS_API_KEY")), build=build_state())
+@app.route("/admin/pronunciation.json")
+@admin_required
+def admin_pronunciation_json():
+    import pronunciation as pr
+    return app.response_class(json.dumps(pr.load(), ensure_ascii=False, indent=1), mimetype="application/json", headers={"Content-Disposition": "attachment; filename=pronunciation.json"})
 def havara_label(k):
     import havara
     return havara.STYLES.get(k, (k,))[0]
@@ -691,7 +789,24 @@ def audio_clip(idx, seg):
 tok = URLSafeTimedSerializer(app.secret_key, salt="hotline")
 def twiml(body): return app.response_class('<?xml version="1.0" encoding="UTF-8"?>\n<Response>' + body + '</Response>', mimetype="text/xml")
 def esc(t): return (t or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
-def say(t): return f'<Say voice="Polly.Matthew">{esc(t)}</Say>'
+def say(t):
+    """Hotline prompt in the voice picked for 'hotline' (admin > Voice > Voices per use); Twilio Polly if no clone is ready."""
+    import voices
+    k, v = voices.resolve("hotline", setting_raw("voiceuse_hotline"))
+    if v["engine"] == "polly": return f'<Say voice="{v["voice"]}">{esc(t)}</Say>'
+    return f'<Play>{esc(absu(url_for("hotline_tts", s=tok.dumps(t))))}</Play>'
+HOTLINE_TTS = os.path.join(BASE, "data", "hotline_tts")
+@app.route("/voice/tts/<s>.mp3")
+def hotline_tts(s):
+    import voices
+    from flask import send_from_directory
+    try: t = tok.loads(s)
+    except BadSignature: abort(404)
+    k, v = voices.resolve("hotline", setting_raw("voiceuse_hotline"))
+    name = hashlib.sha1((k + "|" + t).encode()).hexdigest()[:16] + ".mp3"; os.makedirs(HOTLINE_TTS, exist_ok=True)
+    if not os.path.exists(os.path.join(HOTLINE_TTS, name)):
+        open(os.path.join(HOTLINE_TTS, name), "wb").write(voices.synth("hotline", t, setting_raw("voiceuse_hotline")))
+    return send_from_directory(HOTLINE_TTS, name, mimetype="audio/mpeg")
 def absu(path): return request.url_root.rstrip("/") + path
 def vurl(name, **kw): return esc(url_for(name, **kw))
 def call_uid():

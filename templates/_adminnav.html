@@ -1,8 +1,9 @@
 {% set ep = request.endpoint %}
-<div class="modes" style="grid-template-columns:repeat(5,1fr)" role="navigation" aria-label="Admin">
+<div class="modes" style="grid-template-columns:repeat(6,1fr)" role="navigation" aria-label="Admin">
   <a class="{{ 'on' if ep=='admin' }}" href="{{ url_for('admin') }}">Draws</a>
   <a class="{{ 'on' if ep=='admin_prizes' }}" href="{{ url_for('admin_prizes') }}">Prizes</a>
   <a class="{{ 'on' if ep=='admin_accounts' }}" href="{{ url_for('admin_accounts') }}">Accounts</a>
   <a class="{{ 'on' if ep=='admin_voice' }}" href="{{ url_for('admin_voice') }}">Voice</a>
+  <a class="{{ 'on' if ep=='admin_pronunciation' }}" href="{{ url_for('admin_pronunciation') }}">Words</a>
   <a class="{{ 'on' if ep=='admin_settings' }}" href="{{ url_for('admin_settings') }}">Settings</a>
 </div>

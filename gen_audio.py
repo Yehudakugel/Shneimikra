@@ -28,10 +28,15 @@ TROP_PAUSE = {"\u0591": 0.38,                     # etnachta (half-verse)
 NIKUD = re.compile(r"[\u0591-\u05C7]")
 def tts_words(t, targum=False):
     """-> list of (tts_word, pause_after_seconds). Hebrew respelled per HAVARA; Hashem's name read as Adoynoy."""
+    import pronunciation
+    ov = pronunciation.override_by_source(t, targum)
+    if ov: return [(w, 0) for w in ov.split()]          # admin per-pasuk override: spoken exactly as typed
     t = t.replace("\u05BE", " ").replace("\u05C3", " ").replace(":", " ")
     out = []
     for w in t.split():
         pause = max([TROP_PAUSE.get(ch, 0) for ch in w] + [0]) if not targum else 0
+        say = pronunciation.lookup(w, targum)               # admin dictionary wins over havara.py
+        if say: out.append((say, pause)); continue
         w = re.sub(r"[\u0591-\u05AF\u05BD\u05C0\u05C6]", "", w)  # taamim, meteg, paseq
         cons = NIKUD.sub("", w)
         if not re.search(r"[\u05D0-\u05EA]", cons): continue
